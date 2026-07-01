@@ -1,0 +1,24 @@
+# Nix build outputs
+result
+result-*
+
+# Direnv
+.direnv/
+.envrc.local
+
+# Editor and OS files
+*~
+*.swp
+*.swo
+.DS_Store
+
+# Local secrets and plaintext secret drafts
+.secrets/
+secrets/*.plain.*
+*.age.key
+*.key
+*.pem
+
+# Machine-local scratch files
+local/
+tmp/
