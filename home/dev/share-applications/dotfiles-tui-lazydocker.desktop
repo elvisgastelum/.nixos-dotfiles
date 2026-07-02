@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Lazydocker
+Comment=Terminal UI app managed by dotfiles
+Exec=dotfiles open-or-focus-tui lazydocker
+Icon=docker
+Terminal=false
+Categories=Development;
+StartupNotify=false

@@ -1,0 +1,5 @@
+git:
+  pagers:
+    - pager: "hunk pager --mode auto --line-numbers --no-wrap"
+      colorArg: always
+    - {}

@@ -1,0 +1,44 @@
+{
+	"$schema": "https://json.schemastore.org/claude-code-settings.json",
+	"model": "opus",
+	"agent": "code-planner",
+	"permissions": {
+		"allow": [
+			"Read(*)",
+			"Grep(*)",
+			"Glob(*)",
+			"Bash(ls *)",
+			"Bash(find *)",
+			"Bash(git status*)",
+			"Bash(git diff*)",
+			"Bash(git log*)",
+			"Bash(git branch --show-current)",
+			"Bash(git stash list*)",
+			"Bash(pnpm test*)",
+			"Bash(pnpm vitest*)",
+			"Bash(pnpm e2e*)",
+			"Bash(npm test*)",
+			"Bash(npm run test*)",
+			"Bash(pnpm lint*)",
+			"Bash(pnpm format:check*)",
+			"Bash(npm run lint*)",
+			"Bash(pnpm typecheck*)",
+			"Bash(pnpm tsc*)",
+			"Bash(npm run typecheck*)",
+			"Bash(npm run tsc*)",
+			"Bash(pnpm build*)",
+			"Bash(npm run build*)",
+			"mcp__context7__*"
+		],
+		"deny": [
+			"Bash(rm -rf *)",
+			"Bash(sudo *)",
+			"Bash(curl * | sh*)",
+			"Bash(wget * | sh*)",
+			"Read(./.env)",
+			"Read(./.env.*)",
+			"Read(**/.env)",
+			"Read(**/.env.*)"
+		]
+	}
+}

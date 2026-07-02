@@ -1,0 +1,235 @@
+.TH DOTFILES 1 "2026-06-05" "dotfiles" "User Commands"
+.SH NAME
+dotfiles \- unified desktop and dotfiles helper
+.SH SYNOPSIS
+.B dotfiles
+\fIcommand\fR [\fIargs\fR...]
+.br
+.B dotfiles help
+[\fIcommand\fR]
+.SH DESCRIPTION
+.B dotfiles
+is the single command entry point on PATH for this dotfiles desktop setup. It
+applies managed dotfiles, launches the Walker menu, opens apps, manages
+generated TUI and web app desktop entries, restarts services, changes runtime
+defaults, and dispatches status/control helpers used by Hyprland and Waybar.
+.SH CORE COMMANDS
+.TP
+.B dotfiles help [command]
+Show command help.
+.TP
+.B dotfiles apps
+List managed app/config names discovered from the chezmoi source tree.
+.TP
+.B dotfiles diff [app]
+Preview all managed dotfile changes, or only the named app/config.
+.TP
+.B dotfiles apply [app]
+Apply all managed dotfile changes, or only the named app/config.
+.TP
+.B dotfiles menu [section]
+Open the Walker-backed dotfiles menu. Supported sections include
+.BR apps ,
+.BR keybindings ,
+.BR learn ,
+.BR trigger ,
+.BR style ,
+.BR setup ,
+.BR tui ,
+.BR webapps ,
+.BR install ,
+.BR remove ,
+.BR update ,
+.BR about ,
+.BR system ,
+and
+.BR defaults .
+.TP
+.B dotfiles restart service
+Restart a supported service. Supported services include
+.BR alacritty ,
+.BR btop ,
+.BR foot ,
+.BR hypr ,
+.BR hypridle ,
+.BR hyprland ,
+.BR hyprsunset ,
+.BR kitty ,
+.BR mako ,
+.BR swayosd ,
+.BR terminal ,
+.BR tmux ,
+.BR walker ,
+and
+.BR waybar .
+.TP
+.B dotfiles reset ratune
+Remove Ratune's Linux keyutils Subsonic password key so Ratune prompts for the
+password again on the next launch.
+.TP
+.B dotfiles screensaver [force|run]
+Launch the terminal screensaver. The
+.B run
+mode is used internally inside the screensaver terminal window.
+.TP
+.B dotfiles open-app desktop-id|command [args...]
+Open a desktop entry or execute a command under the desktop session.
+.TP
+.B dotfiles open-or-focus pattern [command...]
+Focus an existing Hyprland window matching the class/title pattern, or launch
+the supplied command.
+.TP
+.B dotfiles open-tui command [args...]
+Open a terminal UI command in the configured terminal launcher.
+.TP
+.B dotfiles open-or-focus-tui command [args...]
+Focus a terminal UI window by its dotfiles app id or open it.
+.TP
+.B dotfiles open-web-app name url
+Open a browser app window for a URL.
+.TP
+.B dotfiles open-or-focus-web-app name url
+Focus an existing browser app window by name or open it.
+.TP
+.B dotfiles open-or-focus-browser [url...]
+Focus the stable main browser window or open the configured browser with a
+stable window name.
+.TP
+.B dotfiles create-web-app [name url [icon]]
+Create a managed desktop entry under
+.IR ~/.local/share/applications .
+Without arguments, prompts through Walker.
+.TP
+.B dotfiles create-tui-app [name command [icon]]
+Create a managed terminal UI desktop entry under
+.IR ~/.local/share/applications .
+Without arguments, prompts through Walker.
+.TP
+.B dotfiles open-browser [--private] [url...]
+Open the configured browser, optionally in private mode.
+.TP
+.B dotfiles edit [file...]
+Open files with the configured editor. The default is the TUI editor
+.BR nvim .
+.TP
+.B dotfiles set browser|terminal|editor value
+Change runtime defaults.
+.TP
+.B dotfiles shell-auto-complete --zsh
+Print shell completion code to stdout.
+.SH DESKTOP COMMANDS
+.TP
+.B dotfiles capture screenshot|screenrecording
+Capture screenshots or toggle screen recording.
+.TP
+.B dotfiles toggle waybar|idle|nightlight|notifications|touchpad
+Toggle desktop features.
+.TP
+.B dotfiles status [app]|battery|updates|voxtype
+Show chezmoi status for managed dotfiles, or print desktop status values for
+notifications and Waybar.
+.TP
+.B dotfiles control wifi|bluetooth|audio
+Open TUI control panels.
+.TP
+.B dotfiles system lock|wake|update|timezone|power-menu
+Run system actions used by Hyprland and Waybar.
+.TP
+.B dotfiles window close-all|pop
+Run window-management helpers.
+.TP
+.B dotfiles workspace layout-toggle|monitor-scaling-cycle
+Run workspace helpers.
+.TP
+.B dotfiles brightness display|keyboard ...
+Adjust display or keyboard brightness.
+.TP
+.B dotfiles audio input-mute|output-switch
+Toggle microphone mute or switch audio output.
+.TP
+.B dotfiles osd [swayosd-client args...]
+Proxy to swayosd-client on the focused monitor.
+.TP
+.B dotfiles walker [walker args...]
+Launch Walker with dotfiles defaults.
+.TP
+.B dotfiles input prompt [walker args...]
+Prompt for a single input value through Walker.
+.TP
+.B dotfiles open-floating-terminal command [args...]
+Open a floating terminal command.
+.SH DEFAULTS
+.TP
+.B dotfiles set browser value
+Writes the browser desktop id to
+.I ~/.config/dotfiles/defaults.env
+and applies XDG browser defaults when xdg-settings or xdg-mime are available.
+.TP
+.B dotfiles set terminal value
+Writes
+.I ~/.config/xdg-terminals.list
+for xdg-terminal-exec.
+.TP
+.B dotfiles set editor value
+Writes EDITOR and VISUAL to
+.IR ~/.config/dotfiles/defaults.env .
+.SH EXAMPLES
+.EX
+dotfiles menu
+dotfiles menu defaults
+dotfiles apps
+dotfiles diff walker
+dotfiles apply walker
+dotfiles status walker
+dotfiles restart waybar
+dotfiles reset ratune
+dotfiles open-browser --private
+dotfiles edit ~/.config/hypr/bindings.conf
+dotfiles set editor nvim
+dotfiles set terminal Alacritty.desktop
+dotfiles shell-auto-complete --zsh
+dotfiles create-web-app ChatGPT https://chatgpt.com web-browser
+dotfiles create-tui-app Btop btop utilities-system-monitor
+.EE
+.SH COMPLETION
+.B dotfiles
+can generate shell completion code.
+.PP
+For Zsh:
+.EX
+source <(dotfiles shell-auto-complete --zsh)
+.EE
+.PP
+The managed Zsh config sources completion automatically when
+.B dotfiles
+is available on PATH. Managed app completion is discovered dynamically from the
+source tree, so
+.B dotfiles apply wal<Tab>
+can complete to
+.BR "dotfiles apply walker" .
+.SH FILES
+.TP
+.I ~/.config/dotfiles/defaults.env
+Runtime defaults written by
+.BR "dotfiles set" .
+.TP
+.I ~/.config/dotfiles/source.env
+Managed source directory used by dynamic CLI completion.
+.TP
+.I ~/.config/dotfiles/scripts
+Internal
+.B dotfiles-*
+desktop helper scripts dispatched by
+.BR dotfiles .
+This directory is not added to PATH.
+.TP
+.I ~/.config/xdg-terminals.list
+Terminal preference order for xdg-terminal-exec.
+.TP
+.I ~/.local/share/applications/dotfiles-*.desktop
+Generated or managed web app and TUI app launchers.
+.SH SEE ALSO
+.BR walker (1),
+.BR xdg-terminal-exec (1),
+.BR xdg-settings (1),
+.BR hyprctl (1)

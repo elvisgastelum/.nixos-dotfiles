@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ChatGPT
+Comment=Web app managed by dotfiles
+Exec=dotfiles open-or-focus-web-app ChatGPT https://chatgpt.com
+Icon=web-browser
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=false

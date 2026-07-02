@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Btop
+Comment=Terminal UI app managed by dotfiles
+Exec=dotfiles open-or-focus-tui btop
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+StartupNotify=false

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Deck
+Comment=Web app managed by dotfiles
+Exec=dotfiles open-or-focus-web-app Deck https://nextcloud.elvisgastelum.com/index.php/apps/deck/
+Icon=web-browser
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=false

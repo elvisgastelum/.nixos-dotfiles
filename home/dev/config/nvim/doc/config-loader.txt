@@ -1,0 +1,55 @@
+*config-loader.txt*    configuration-loader for profile selection
+
+CONFIG LOADER                                            *config-loader*
+
+This module lets you choose which config profile from `lua/{name}` is loaded
+at startup.
+
+SETUP ~
+
+In `init.lua`:
+
+>
+  require('configuration-loader').setup({
+    profile = 'dev',
+  })
+<
+
+- `profile` is the fallback profile.
+- If a saved profile exists, it is used instead.
+
+COMMANDS ~
+
+:ConfigSet {profile}                                     *:ConfigSet*
+        Persist the profile to load on next Neovim startup.
+
+:ConfigSelect {profile}                                  *:ConfigSelect*
+        Alias for `:ConfigSet`.
+
+:ConfigStatus                                            *:ConfigStatus*
+        Show active profile in the current session and the profile selected
+        for next startup.
+
+COMPLETION ~
+
+Command completion is dynamic from `lua/*/init.lua` and excludes
+`lua/configuration-loader`.
+
+PERSISTENCE ~
+
+Selection is saved to:
+
+>
+  vim.fn.stdpath('state') .. '/selected-config-profile'
+<
+
+RUNTIME HELP ~
+
+This config auto-generates helptags for `~/.config/nvim/doc` during setup.
+Then use:
+
+>
+  :help config-loader
+<
+
+vim:tw=78:ts=8:noet:ft=help:norl:

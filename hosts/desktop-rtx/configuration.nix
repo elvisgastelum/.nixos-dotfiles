@@ -59,6 +59,7 @@ in
   users.users.dev = {
     isNormalUser = true;
     description = "Elvis Gastelum";
+    shell = pkgs.zsh;
     extraGroups = [ "networkmanager" "wheel" "video" "audio" "input" ];
     packages = with pkgs; [ ];
   };

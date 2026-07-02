@@ -1,0 +1,961 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/source.env"
+DEFAULTS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/defaults.env"
+SCRIPT_DIR="${DOTFILES_SCRIPT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/scripts}"
+
+if [[ -f $SOURCE_FILE ]]; then
+	# shellcheck source=/dev/null
+	source "$SOURCE_FILE"
+fi
+
+if [[ -f $DEFAULTS_FILE ]]; then
+	# shellcheck source=/dev/null
+	source "$DEFAULTS_FILE"
+fi
+
+command_present() {
+	command -v "$1" >/dev/null 2>&1
+}
+
+die() {
+	printf '%s\n' "$1" >&2
+	exit "${2:-1}"
+}
+
+source_dir_from_candidate() {
+	local candidate="$1"
+
+	[[ -n $candidate ]] || return 1
+
+	if [[ -f $candidate/flake.nix && -d $candidate/home/dev/config ]]; then
+		(cd "$candidate" >/dev/null 2>&1 && pwd -P)
+		return 0
+	fi
+
+	if [[ -d $candidate/home && (-d $candidate/home/dot_config || -d $candidate/home/dot_local || -f $candidate/home/.chezmoiignore) ]]; then
+		(cd "$candidate/home" >/dev/null 2>&1 && pwd -P)
+		return 0
+	fi
+
+	if [[ -d $candidate && (-d $candidate/dot_config || -d $candidate/dot_local || -f $candidate/.chezmoiignore) ]]; then
+		(cd "$candidate" >/dev/null 2>&1 && pwd -P)
+		return 0
+	fi
+
+	return 1
+}
+
+managed_source_dir() {
+	local candidate script_dir source_path
+
+	for candidate in "${DOTFILES_SOURCE_DIR:-}" "${DOTFILES_REPO:-}"; do
+		if source_dir_from_candidate "$candidate"; then
+			return 0
+		fi
+	done
+
+	if script_dir=$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd -P); then
+		for candidate in "$script_dir/../.." "$script_dir/../../.."; do
+			if source_dir_from_candidate "$candidate"; then
+				return 0
+			fi
+		done
+	fi
+
+	for candidate in "$PWD" "$PWD/home"; do
+		if source_dir_from_candidate "$candidate"; then
+			return 0
+		fi
+	done
+
+	if command_present chezmoi; then
+		source_path=$(chezmoi source-path 2>/dev/null || true)
+		if source_dir_from_candidate "$source_path"; then
+			return 0
+		fi
+	fi
+
+	return 1
+}
+
+managed_apps() {
+	local source_dir
+
+	source_dir=$(managed_source_dir) || return 0
+
+	(
+		local app name path target
+
+		shopt -s nullglob
+
+		if [[ -d $source_dir/home/dev/config ]]; then
+			for path in "$source_dir"/home/dev/config/*; do
+				name=${path##*/}
+				case "$name" in
+				zsh) printf '%s\n' zsh ;;
+				*.conf) printf '%s\n' "${name%.conf}" ;;
+				*) printf '%s\n' "$name" ;;
+				esac
+			done
+
+			[[ -d $source_dir/home/dev/bin ]] && printf '%s\n' local-bin
+			[[ -d $source_dir/home/dev/share-applications ]] && printf '%s\n' applications
+			[[ -d $source_dir/home/dev/man ]] && printf '%s\n' man
+			[[ -d $source_dir/home/dev/claude ]] && printf '%s\n' claude
+			return 0
+		fi
+
+		for path in "$source_dir"/dot_config/*; do
+			name=${path##*/}
+			target=${name%.tmpl}
+			app=${target%.*}
+			printf '%s\n' "$app"
+		done
+
+		for path in "$source_dir"/dot_* "$source_dir"/create_dot_*; do
+			case "$path" in
+			*/dot_config | */dot_local) continue ;;
+			esac
+
+			name=${path##*/}
+			name=${name#create_}
+			target=.${name#dot_}
+			app=${target#.}
+			app=${app%rc}
+			printf '%s\n' "$app"
+		done
+
+		if [[ -d $source_dir/dot_local/bin ]]; then
+			printf '%s\n' local-bin
+		fi
+
+		for path in "$source_dir"/dot_local/share/*; do
+			printf '%s\n' "${path##*/}"
+		done
+
+		if [[ -e $source_dir/dot_config/obs-studio ]]; then
+			printf '%s\n' obs
+		fi
+	) | sort -u
+}
+
+managed_app_target() {
+	local app="$1" source_dir
+
+	source_dir=$(managed_source_dir) || return 1
+
+	(
+		local candidate name path target
+
+		shopt -s nullglob
+
+		if [[ -d $source_dir/home/dev/config ]]; then
+			for path in "$source_dir"/home/dev/config/*; do
+				name=${path##*/}
+				case "$name" in
+				zsh)
+					candidate=zsh
+					target="$HOME/.config/zsh/default"
+					;;
+				*.conf)
+					candidate=${name%.conf}
+					target="$HOME/.config/$name"
+					;;
+				*)
+					candidate=$name
+					target="$HOME/.config/$name"
+					;;
+				esac
+
+				if [[ $candidate == "$app" ]]; then
+					printf '%s\n' "$target"
+					return 0
+				fi
+			done
+
+			case "$app" in
+			local-bin) printf '%s\n' "$HOME/.local/bin"; return 0 ;;
+			applications) printf '%s\n' "$HOME/.local/share/applications"; return 0 ;;
+			man) printf '%s\n' "$HOME/.local/share/man"; return 0 ;;
+			claude) printf '%s\n' "$HOME/.claude"; return 0 ;;
+			esac
+
+			return 1
+		fi
+
+		for path in "$source_dir"/dot_config/*; do
+			name=${path##*/}
+			target=${name%.tmpl}
+			candidate=${target%.*}
+			if [[ $candidate == "$app" ]]; then
+				printf '%s\n' "$HOME/.config/$target"
+				return 0
+			fi
+		done
+
+		for path in "$source_dir"/dot_* "$source_dir"/create_dot_*; do
+			case "$path" in
+			*/dot_config | */dot_local) continue ;;
+			esac
+
+			name=${path##*/}
+			name=${name#create_}
+			target=.${name#dot_}
+			candidate=${target#.}
+			candidate=${candidate%rc}
+			if [[ $candidate == "$app" ]]; then
+				printf '%s\n' "$HOME/$target"
+				return 0
+			fi
+		done
+
+		if [[ $app == local-bin && -d $source_dir/dot_local/bin ]]; then
+			printf '%s\n' "$HOME/.local/bin"
+			return 0
+		fi
+
+		for path in "$source_dir"/dot_local/share/*; do
+			candidate=${path##*/}
+			if [[ $candidate == "$app" ]]; then
+				printf '%s\n' "$HOME/.local/share/$candidate"
+				return 0
+			fi
+		done
+
+		if [[ $app == obs && -e $source_dir/dot_config/obs-studio ]]; then
+			printf '%s\n' "$HOME/.config/obs-studio"
+			return 0
+		fi
+
+		return 1
+	)
+}
+
+restart_services() {
+	printf '%s\n' \
+		alacritty \
+		btop \
+		foot \
+		ghostty \
+		hypr \
+		hyprctl \
+		hypridle \
+		hyprland \
+		hyprsunset \
+		kitty \
+		mako \
+		swayosd \
+		terminal \
+		tmux \
+		walker \
+		waybar
+}
+
+reset_targets() {
+	printf '%s\n' ratune
+}
+
+show_managed_apps() {
+	local app separator=""
+
+	printf 'Supported apps:\n  '
+	while IFS= read -r app; do
+		printf '%s%s' "$separator" "$app"
+		separator=' '
+	done < <(managed_apps)
+	printf '\n\nExample: dotfiles diff alacritty\n'
+}
+
+managed_chezmoi() {
+	local action="$1" app="${2:-}" source_dir target flake_ref
+
+	if [[ $# -gt 2 ]]; then
+		die "Usage: dotfiles $action [app]" 2
+	fi
+
+	source_dir=$(managed_source_dir) || die 'Could not locate the dotfiles source directory.' 2
+	flake_ref="$source_dir#desktop-rtx"
+
+	if [[ -d $source_dir/home/dev/config ]]; then
+		if [[ -n $app ]]; then
+			target=$(managed_app_target "$app") || {
+				printf 'Unknown app: %s\n' "$app" >&2
+				printf 'Available apps: ' >&2
+				managed_apps | tr '\n' ' ' >&2
+				printf '\n' >&2
+				exit 2
+			}
+			printf '%s is managed by Home Manager at %s; Nix rebuilds apply the full profile.\n' "$app" "$target"
+		fi
+
+		case "$action" in
+		diff)
+			printf 'Building NixOS configuration for review: %s\n' "$flake_ref"
+			nixos-rebuild build --flake "$flake_ref"
+			return
+			;;
+		apply)
+			printf 'Switching NixOS configuration: %s\n' "$flake_ref"
+			exec sudo nixos-rebuild switch --flake "$flake_ref"
+			;;
+		status)
+			git -C "$source_dir" status --short
+			return
+			;;
+		esac
+	fi
+
+	command_present chezmoi || die 'chezmoi is required but not installed.' 127
+
+	if [[ -n $app ]]; then
+		target=$(managed_app_target "$app") || {
+			printf 'Unknown app: %s\n' "$app" >&2
+			printf 'Available apps: ' >&2
+			managed_apps | tr '\n' ' ' >&2
+			printf '\n' >&2
+			exit 2
+		}
+
+		case "$action" in
+		diff) printf 'Diffing %s: %s\n' "$app" "$target" ;;
+		apply) printf 'Applying %s: %s\n' "$app" "$target" ;;
+		esac
+
+		chezmoi --source "$source_dir" "$action" "$target"
+	else
+		case "$action" in
+		diff) printf 'Diffing all managed dotfiles\n' ;;
+		apply) printf 'Applying all managed dotfiles\n' ;;
+		esac
+
+		chezmoi --source "$source_dir" "$action"
+	fi
+}
+
+completion_command() {
+	case "${1:-}" in
+	managed-apps) managed_apps ;;
+	restart-services) restart_services ;;
+	reset-targets) reset_targets ;;
+	*) die 'Usage: dotfiles complete managed-apps|restart-services|reset-targets' 2 ;;
+	esac
+}
+
+dotfiles_script() {
+	local name="$1"
+	local direct="$SCRIPT_DIR/$name"
+	local source_name="$SCRIPT_DIR/executable_$name"
+	local source_symlink="$SCRIPT_DIR/symlink_$name"
+
+	if [[ -f $direct ]]; then
+		printf '%s\n' "$direct"
+		return 0
+	fi
+
+	if [[ -f $source_name ]]; then
+		printf '%s\n' "$source_name"
+		return 0
+	fi
+
+	if [[ -f $source_symlink ]]; then
+		printf '%s\n' "$source_symlink"
+		return 0
+	fi
+
+	return 1
+}
+
+run_script() {
+	local name="$1" script
+	shift
+
+	script=$(dotfiles_script "$name") || die "Missing dotfiles script: $SCRIPT_DIR/$name" 127
+
+	if [[ ${script##*/} == symlink_* ]]; then
+		DOTFILES_SCRIPT_DIR=$SCRIPT_DIR run_script dotfiles-run "$name" "$@"
+	fi
+
+	if [[ -x $script ]]; then
+		exec "$script" "$@"
+	fi
+
+	exec bash "$script" "$@"
+}
+
+show_help() {
+	case "${1:-}" in
+	"" | dotfiles)
+		cat <<'EOF'
+dotfiles - unified desktop and dotfiles helper
+
+Usage:
+  dotfiles <command> [args...]
+  dotfiles help [command]
+
+Core commands:
+  help [command]                         Show help
+  apps                                   List managed app/config names
+  diff [app]                             Preview managed dotfile changes
+  apply [app]                            Apply managed dotfile changes
+  menu [section]                         Open the Walker dotfiles menu
+  restart <service>                      Restart a desktop service
+  reset ratune                           Reset stored app credentials/state
+  screensaver [force|run]                Launch or run the terminal screensaver
+  open-app <desktop-id|command> [args...] Open a desktop app or command
+  open-or-focus <pattern> [command...]   Focus an existing window or launch
+  open-tui <command> [args...]           Open a terminal UI app
+  open-or-focus-tui <command> [args...]  Focus or open a terminal UI app
+  open-web-app <name> <url>              Open a browser app window
+  open-or-focus-web-app <name> <url>     Focus or open a browser app window
+  open-or-focus-browser [url...]         Focus or open the main browser window
+  create-web-app [name url [icon]]       Create a managed web app launcher
+  create-tui-app [name command [icon]]   Create a managed TUI app launcher
+  open-browser [--private] [url...]      Open the default browser
+  edit [file...]                         Edit files with the default editor
+  set browser|terminal|editor <value>    Change runtime defaults
+  shell-auto-complete --bash|--zsh       Print shell completion code
+
+Desktop commands:
+  capture screenshot|screenrecording
+  toggle waybar|idle|nightlight|notifications|touchpad
+  status [app]|battery|updates|voxtype
+  control wifi|bluetooth|audio
+  system lock|wake|update|timezone|power-menu
+  window close-all|pop
+  workspace layout-toggle|monitor-scaling-cycle
+  brightness display|keyboard ...
+  audio input-mute|output-switch
+  osd [swayosd-client args...]
+  walker [walker args...]
+  input <prompt> [walker args...]
+
+Examples:
+  dotfiles menu
+  dotfiles apps
+  dotfiles diff walker
+  dotfiles apply walker
+  dotfiles restart waybar
+  dotfiles reset ratune
+  dotfiles open-browser --private
+  dotfiles edit ~/.config/hypr/bindings.conf
+  dotfiles set editor nvim
+  dotfiles set terminal Alacritty.desktop
+  dotfiles shell-auto-complete --bash
+  dotfiles create-web-app ChatGPT https://chatgpt.com web-browser
+  dotfiles create-tui-app Btop btop utilities-system-monitor
+
+Run 'man dotfiles' for the full manual.
+EOF
+		;;
+	apps)
+		cat <<'EOF'
+Usage:
+  dotfiles apps
+
+List app/config names discovered from the managed chezmoi source tree.
+EOF
+		;;
+	diff | apply)
+		cat <<EOF
+Usage:
+  dotfiles $1 [app]
+
+With no app, runs '$1' for all managed dotfiles. With an app, limits '$1' to that managed target.
+
+Examples:
+  dotfiles $1 walker
+  dotfiles $1 hypr
+EOF
+		;;
+	status)
+		cat <<'EOF'
+Usage:
+  dotfiles status [app]
+  dotfiles status battery|updates|voxtype
+
+With no app, shows chezmoi status for all managed dotfiles. With a managed app name, limits status to that target. Desktop status subcommands are dispatched to ~/.config/dotfiles/scripts.
+EOF
+		;;
+	set)
+		cat <<'EOF'
+Usage:
+  dotfiles set browser <desktop-id|command>
+  dotfiles set terminal <desktop-id|command>
+  dotfiles set editor <command>
+
+Examples:
+  dotfiles set browser brave-origin-beta.desktop
+  dotfiles set terminal Alacritty.desktop
+  dotfiles set editor nvim
+
+Browser defaults are written to XDG settings and ~/.config/dotfiles/defaults.env.
+Terminal defaults are written to ~/.config/xdg-terminals.list.
+Editor defaults are written to ~/.config/dotfiles/defaults.env.
+EOF
+		;;
+	restart)
+		cat <<'EOF'
+Usage:
+  dotfiles restart <service>
+
+Services:
+EOF
+		local separator service
+		separator=""
+		printf '  '
+		while IFS= read -r service; do
+			printf '%s%s' "$separator" "$service"
+			separator=' '
+		done < <(restart_services)
+		printf '\n'
+		;;
+	reset)
+		cat <<'EOF'
+Usage:
+  dotfiles reset ratune
+
+Reset app-specific stored state. Currently supported targets:
+  ratune    Remove Ratune's Linux keyutils Subsonic password key so Ratune prompts again.
+EOF
+		;;
+	menu)
+		cat <<'EOF'
+Usage:
+  dotfiles menu [section]
+
+Sections:
+  apps keybindings learn trigger style setup tui web webapp webapps install remove update about system power
+EOF
+		;;
+	shell-auto-complete)
+		cat <<'EOF'
+Usage:
+  dotfiles shell-auto-complete --bash
+  dotfiles shell-auto-complete --zsh
+
+Print shell completion code to stdout.
+EOF
+		;;
+	*)
+		printf 'No detailed help for %s. Run: dotfiles help\n' "$1" >&2
+		return 2
+		;;
+	esac
+}
+
+shell_auto_complete_bash() {
+	cat <<'EOF'
+_dotfiles_complete() {
+	local cur command_name
+	local top_commands menu_sections managed_apps restart_services reset_targets set_defaults screensaver_modes
+	local capture_commands toggle_commands status_commands control_commands system_commands
+	local window_commands workspace_commands brightness_commands audio_commands voxtype_commands
+
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+	command_name="${COMP_WORDS[1]:-}"
+
+	top_commands="help apps diff apply menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete"
+	menu_sections="apps keybindings learn trigger style setup tui tuis web webapp webapps install remove update about system power defaults"
+	set_defaults="browser terminal editor"
+	screensaver_modes="force run launch"
+	capture_commands="screenshot screenrecording screenrecord"
+	toggle_commands="waybar topbar idle idle-lock nightlight night-light notifications notification-silencing touchpad"
+	status_commands="battery updates update-available voxtype"
+	control_commands="wifi bluetooth audio"
+	system_commands="lock wake update timezone tz-select power-menu power"
+	window_commands="close-all pop"
+	workspace_commands="layout-toggle monitor-scaling-cycle"
+	brightness_commands="display keyboard"
+	audio_commands="input-mute output-switch"
+	voxtype_commands="status config model"
+
+	if ((COMP_CWORD == 1)); then
+		COMPREPLY=($(compgen -W "$top_commands" -- "$cur"))
+		return 0
+	fi
+
+	case "$command_name" in
+	help)
+		COMPREPLY=($(compgen -W "$top_commands" -- "$cur"))
+		;;
+	diff | apply)
+		managed_apps="$(dotfiles complete managed-apps 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$managed_apps" -- "$cur"))
+		;;
+	menu)
+		COMPREPLY=($(compgen -W "$menu_sections" -- "$cur"))
+		;;
+	restart)
+		restart_services="$(dotfiles complete restart-services 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$restart_services" -- "$cur"))
+		;;
+	reset)
+		reset_targets="$(dotfiles complete reset-targets 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$reset_targets" -- "$cur"))
+		;;
+	screensaver)
+		COMPREPLY=($(compgen -W "$screensaver_modes" -- "$cur"))
+		;;
+	set)
+		COMPREPLY=($(compgen -W "$set_defaults" -- "$cur"))
+		;;
+	capture)
+		COMPREPLY=($(compgen -W "$capture_commands" -- "$cur"))
+		;;
+	toggle)
+		COMPREPLY=($(compgen -W "$toggle_commands" -- "$cur"))
+		;;
+	status)
+		managed_apps="$(dotfiles complete managed-apps 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$status_commands $managed_apps" -- "$cur"))
+		;;
+	control)
+		COMPREPLY=($(compgen -W "$control_commands" -- "$cur"))
+		;;
+	system)
+		COMPREPLY=($(compgen -W "$system_commands" -- "$cur"))
+		;;
+	window)
+		COMPREPLY=($(compgen -W "$window_commands" -- "$cur"))
+		;;
+	workspace)
+		COMPREPLY=($(compgen -W "$workspace_commands" -- "$cur"))
+		;;
+	brightness)
+		COMPREPLY=($(compgen -W "$brightness_commands" -- "$cur"))
+		;;
+	audio)
+		COMPREPLY=($(compgen -W "$audio_commands" -- "$cur"))
+		;;
+	voxtype)
+		COMPREPLY=($(compgen -W "$voxtype_commands" -- "$cur"))
+		;;
+	shell-auto-complete)
+		COMPREPLY=($(compgen -W "--bash --zsh" -- "$cur"))
+		;;
+	edit)
+		COMPREPLY=($(compgen -f -- "$cur"))
+		;;
+	open-app | open-tui | open-or-focus-tui | open-floating-terminal)
+		if ((COMP_CWORD == 2)); then
+			COMPREPLY=($(compgen -c -- "$cur"))
+		fi
+		;;
+	esac
+}
+
+complete -F _dotfiles_complete dotfiles
+EOF
+}
+
+shell_auto_complete_zsh() {
+	cat <<'EOF'
+#compdef dotfiles
+
+_dotfiles() {
+	local -a top_commands menu_sections managed_apps restart_services reset_targets set_defaults screensaver_modes
+	local -a capture_commands toggle_commands status_commands control_commands system_commands
+	local -a window_commands workspace_commands brightness_commands audio_commands voxtype_commands shell_options
+
+	top_commands=(help apps diff apply menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete)
+	menu_sections=(apps keybindings learn trigger style setup tui tuis web webapp webapps install remove update about system power defaults)
+	managed_apps=(${(f)"$(dotfiles complete managed-apps 2>/dev/null)"})
+	restart_services=(${(f)"$(dotfiles complete restart-services 2>/dev/null)"})
+	reset_targets=(${(f)"$(dotfiles complete reset-targets 2>/dev/null)"})
+	set_defaults=(browser terminal editor)
+	screensaver_modes=(force run launch)
+	capture_commands=(screenshot screenrecording screenrecord)
+	toggle_commands=(waybar topbar idle idle-lock nightlight night-light notifications notification-silencing touchpad)
+	status_commands=(battery updates update-available voxtype)
+	control_commands=(wifi bluetooth audio)
+	system_commands=(lock wake update timezone tz-select power-menu power)
+	window_commands=(close-all pop)
+	workspace_commands=(layout-toggle monitor-scaling-cycle)
+	brightness_commands=(display keyboard)
+	audio_commands=(input-mute output-switch)
+	voxtype_commands=(status config model)
+	shell_options=(--bash --zsh)
+
+	if ((CURRENT == 2)); then
+		_values 'dotfiles command' $top_commands
+		return
+	fi
+
+	case "$words[2]" in
+		help) _values 'dotfiles command' $top_commands ;;
+		diff | apply) _values 'managed app' $managed_apps ;;
+		menu) _values 'menu section' $menu_sections ;;
+		restart) _values 'restart service' $restart_services ;;
+		reset) _values 'reset target' $reset_targets ;;
+		screensaver) _values 'screensaver mode' $screensaver_modes ;;
+		set) _values 'default' $set_defaults ;;
+		capture) _values 'capture command' $capture_commands ;;
+		toggle) _values 'toggle command' $toggle_commands ;;
+		status) _values 'status command or managed app' $status_commands $managed_apps ;;
+		control) _values 'control command' $control_commands ;;
+		system) _values 'system command' $system_commands ;;
+		window) _values 'window command' $window_commands ;;
+		workspace) _values 'workspace command' $workspace_commands ;;
+		brightness) _values 'brightness command' $brightness_commands ;;
+		audio) _values 'audio command' $audio_commands ;;
+		voxtype) _values 'voxtype command' $voxtype_commands ;;
+		shell-auto-complete) _values 'shell' $shell_options ;;
+		edit) _files ;;
+		open-app | open-tui | open-or-focus-tui | open-floating-terminal) _path_commands ;;
+	esac
+}
+
+compdef _dotfiles dotfiles
+EOF
+}
+
+shell_auto_complete_command() {
+	case "${1:-}" in
+	--bash) shell_auto_complete_bash ;;
+	--zsh) shell_auto_complete_zsh ;;
+	*) die 'Usage: dotfiles shell-auto-complete --bash|--zsh' 2 ;;
+	esac
+}
+
+capture_command() {
+	case "${1:-}" in
+	screenshot)
+		shift
+		run_script dotfiles-capture-screenshot "$@"
+		;;
+	screenrecording | screenrecord)
+		shift
+		run_script dotfiles-capture-screenrecording "$@"
+		;;
+	*) die 'Usage: dotfiles capture screenshot|screenrecording' 2 ;;
+	esac
+}
+
+toggle_command() {
+	case "${1:-}" in
+	waybar | topbar)
+		shift
+		run_script dotfiles-toggle-waybar "$@"
+		;;
+	idle | idle-lock)
+		shift
+		run_script dotfiles-toggle-idle "$@"
+		;;
+	nightlight | night-light)
+		shift
+		run_script dotfiles-toggle-nightlight "$@"
+		;;
+	notifications | notification-silencing)
+		shift
+		run_script dotfiles-toggle-notification-silencing "$@"
+		;;
+	touchpad)
+		shift
+		run_script dotfiles-toggle-touchpad "$@"
+		;;
+	*) die 'Usage: dotfiles toggle waybar|idle|nightlight|notifications|touchpad' 2 ;;
+	esac
+}
+
+status_command() {
+	case "${1:-}" in
+	"") managed_chezmoi status ;;
+	battery)
+		shift
+		run_script dotfiles-battery-status "$@"
+		;;
+	updates | update-available)
+		shift
+		run_script dotfiles-update-available "$@"
+		;;
+	voxtype)
+		shift
+		run_script dotfiles-voxtype-status "$@"
+		;;
+	*)
+		if managed_app_target "$1" >/dev/null; then
+			managed_chezmoi status "$1"
+		else
+			die 'Usage: dotfiles status [app]|battery|updates|voxtype' 2
+		fi
+		;;
+	esac
+}
+
+reset_command() {
+	case "${1:-}" in
+	ratune)
+		shift
+		run_script dotfiles-reset-ratune "$@"
+		;;
+	*) die 'Usage: dotfiles reset ratune' 2 ;;
+	esac
+}
+
+control_command() {
+	case "${1:-}" in
+	wifi)
+		shift
+		run_script dotfiles-launch-wifi "$@"
+		;;
+	bluetooth)
+		shift
+		run_script dotfiles-launch-bluetooth "$@"
+		;;
+	audio)
+		shift
+		run_script dotfiles-launch-audio "$@"
+		;;
+	*) die 'Usage: dotfiles control wifi|bluetooth|audio' 2 ;;
+	esac
+}
+
+system_command() {
+	case "${1:-}" in
+	lock)
+		shift
+		run_script dotfiles-system-lock "$@"
+		;;
+	wake)
+		shift
+		run_script dotfiles-system-wake "$@"
+		;;
+	update)
+		shift
+		run_script dotfiles-system-update "$@"
+		;;
+	timezone | tz-select)
+		shift
+		run_script dotfiles-system-timezone "$@"
+		;;
+	power-menu | power)
+		shift
+		run_script dotfiles-power-menu "$@"
+		;;
+	*) die 'Usage: dotfiles system lock|wake|update|timezone|power-menu' 2 ;;
+	esac
+}
+
+window_command() {
+	case "${1:-}" in
+	close-all)
+		shift
+		run_script dotfiles-window-close-all "$@"
+		;;
+	pop)
+		shift
+		run_script dotfiles-window-pop "$@"
+		;;
+	*) die 'Usage: dotfiles window close-all|pop' 2 ;;
+	esac
+}
+
+workspace_command() {
+	case "${1:-}" in
+	layout-toggle)
+		shift
+		run_script dotfiles-workspace-layout-toggle "$@"
+		;;
+	monitor-scaling-cycle)
+		shift
+		run_script dotfiles-monitor-scaling-cycle "$@"
+		;;
+	*) die 'Usage: dotfiles workspace layout-toggle|monitor-scaling-cycle' 2 ;;
+	esac
+}
+
+brightness_command() {
+	local kind="${1:-}"
+	[[ -n $kind ]] || die 'Usage: dotfiles brightness display|keyboard ...' 2
+	shift
+
+	case "$kind" in
+	display) run_script dotfiles-brightness-display "$@" ;;
+	keyboard) run_script dotfiles-brightness-keyboard "$@" ;;
+	*) die 'Usage: dotfiles brightness display|keyboard ...' 2 ;;
+	esac
+}
+
+audio_command() {
+	case "${1:-}" in
+	input-mute)
+		shift
+		run_script dotfiles-audio-input-mute "$@"
+		;;
+	output-switch)
+		shift
+		run_script dotfiles-audio-output-switch "$@"
+		;;
+	*) die 'Usage: dotfiles audio input-mute|output-switch' 2 ;;
+	esac
+}
+
+voxtype_command() {
+	case "${1:-}" in
+	status)
+		shift
+		run_script dotfiles-voxtype-status "$@"
+		;;
+	config)
+		shift
+		run_script dotfiles-voxtype-config "$@"
+		;;
+	model)
+		shift
+		run_script dotfiles-voxtype-model "$@"
+		;;
+	*) die 'Usage: dotfiles voxtype status|config|model' 2 ;;
+	esac
+}
+
+main() {
+	local command_name="${1:-help}"
+	shift || true
+
+	case "$command_name" in
+	help | -h | --help) show_help "$@" ;;
+	apps) show_managed_apps ;;
+	diff) managed_chezmoi diff "$@" ;;
+	apply) managed_chezmoi apply "$@" ;;
+	menu) run_script dotfiles-menu "$@" ;;
+	restart) run_script dotfiles-restart-service "$@" ;;
+	reset) reset_command "$@" ;;
+	screensaver) run_script dotfiles-screensaver "$@" ;;
+	open-app) run_script dotfiles-open-app "$@" ;;
+	open-or-focus) run_script dotfiles-launch-or-focus "$@" ;;
+	open-tui) run_script dotfiles-launch-tui "$@" ;;
+	open-or-focus-tui) run_script dotfiles-launch-or-focus-tui "$@" ;;
+	open-web-app) run_script dotfiles-launch-webapp "$@" ;;
+	open-or-focus-web-app) run_script dotfiles-launch-or-focus-webapp "$@" ;;
+	open-or-focus-browser) run_script dotfiles-launch-or-focus-browser "$@" ;;
+	create-web-app) run_script dotfiles-create-web-app "$@" ;;
+	create-tui-app) run_script dotfiles-create-tui-app "$@" ;;
+	open-browser) run_script dotfiles-launch-browser "$@" ;;
+	edit) run_script dotfiles-launch-editor "$@" ;;
+	set) run_script dotfiles-set-default "$@" ;;
+	shell-auto-complete) shell_auto_complete_command "$@" ;;
+	capture) capture_command "$@" ;;
+	toggle) toggle_command "$@" ;;
+	status) status_command "$@" ;;
+	control) control_command "$@" ;;
+	system) system_command "$@" ;;
+	window) window_command "$@" ;;
+	workspace) workspace_command "$@" ;;
+	brightness) brightness_command "$@" ;;
+	audio) audio_command "$@" ;;
+	voxtype) voxtype_command "$@" ;;
+	osd) run_script dotfiles-swayosd-client "$@" ;;
+	walker) run_script dotfiles-launch-walker "$@" ;;
+	input) run_script dotfiles-menu-input "$@" ;;
+	open-floating-terminal) run_script dotfiles-launch-floating-terminal "$@" ;;
+	keybindings) run_script dotfiles-show-keybindings "$@" ;;
+	internal-terminal-cwd) run_script dotfiles-cmd-terminal-cwd "$@" ;;
+	complete) completion_command "$@" ;;
+	*) die "Unknown dotfiles command: $command_name. Run: dotfiles help" 2 ;;
+	esac
+}
+
+main "$@"

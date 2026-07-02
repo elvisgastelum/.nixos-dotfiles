@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Cliamp
+Comment=Terminal UI app managed by dotfiles
+Exec=dotfiles open-or-focus-tui cliamp
+Icon=audio-x-generic
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupNotify=false

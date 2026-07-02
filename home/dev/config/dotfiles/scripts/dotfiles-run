@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+invoked_as=${0##*/}
+invoked_as=${invoked_as#executable_}
+
+if [[ $invoked_as == dotfiles-run ]]; then
+	script_name=${1:-}
+	[[ -n $script_name ]] || {
+		printf 'Usage: dotfiles-run <dotfiles-script> [args...]\n' >&2
+		exit 2
+	}
+	shift
+	script_name=${script_name##*/}
+	script_name=${script_name#executable_}
+else
+	script_name=$invoked_as
+fi
+script_dir="${DOTFILES_SCRIPT_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/scripts}"
+
+desktop_script="$script_dir/dotfiles-desktop"
+if [[ ! -f $desktop_script ]]; then
+	desktop_script="$script_dir/executable_dotfiles-desktop"
+fi
+
+case "$script_name" in
+dotfiles-audio-input-mute) set -- audio input-mute "$@" ;;
+dotfiles-audio-output-switch) set -- audio output-switch "$@" ;;
+dotfiles-battery-status) set -- status battery "$@" ;;
+dotfiles-brightness-display) set -- brightness display "$@" ;;
+dotfiles-brightness-keyboard) set -- brightness keyboard "$@" ;;
+dotfiles-capture-screenrecording) set -- capture screenrecording "$@" ;;
+dotfiles-capture-screenshot) set -- capture screenshot "$@" ;;
+dotfiles-cmd-terminal-cwd) set -- internal-terminal-cwd "$@" ;;
+dotfiles-create-tui-app) set -- create-tui-app "$@" ;;
+dotfiles-create-web-app) set -- create-web-app "$@" ;;
+dotfiles-launch-audio) set -- control audio "$@" ;;
+dotfiles-launch-bluetooth) set -- control bluetooth "$@" ;;
+dotfiles-launch-browser) set -- open-browser "$@" ;;
+dotfiles-launch-editor) set -- edit "$@" ;;
+dotfiles-launch-floating-terminal) set -- open-floating-terminal "$@" ;;
+dotfiles-launch-or-focus) set -- open-or-focus "$@" ;;
+dotfiles-launch-or-focus-browser) set -- open-or-focus-browser "$@" ;;
+dotfiles-launch-or-focus-tui) set -- open-or-focus-tui "$@" ;;
+dotfiles-launch-or-focus-webapp) set -- open-or-focus-web-app "$@" ;;
+dotfiles-launch-screensaver) set -- screensaver "$@" ;;
+dotfiles-launch-tui) set -- open-tui "$@" ;;
+dotfiles-launch-walker) set -- walker "$@" ;;
+dotfiles-launch-webapp) set -- open-web-app "$@" ;;
+dotfiles-launch-wifi) set -- control wifi "$@" ;;
+dotfiles-menu) set -- menu "$@" ;;
+dotfiles-menu-input) set -- input "$@" ;;
+dotfiles-monitor-scaling-cycle) set -- workspace monitor-scaling-cycle "$@" ;;
+dotfiles-open-app) set -- open-app "$@" ;;
+dotfiles-power-menu) set -- system power-menu "$@" ;;
+dotfiles-reset-ratune) set -- reset ratune "$@" ;;
+dotfiles-restart-service) set -- restart "$@" ;;
+dotfiles-restart-walker) set -- restart walker "$@" ;;
+dotfiles-screensaver) set -- screensaver "$@" ;;
+dotfiles-set-default) set -- set "$@" ;;
+dotfiles-show-keybindings) set -- keybindings "$@" ;;
+dotfiles-swayosd-client) set -- osd "$@" ;;
+dotfiles-system-lock) set -- system lock "$@" ;;
+dotfiles-system-timezone) set -- system timezone "$@" ;;
+dotfiles-system-update) set -- system update "$@" ;;
+dotfiles-system-wake) set -- system wake "$@" ;;
+dotfiles-toggle-idle) set -- toggle idle "$@" ;;
+dotfiles-toggle-nightlight) set -- toggle nightlight "$@" ;;
+dotfiles-toggle-notification-silencing) set -- toggle notifications "$@" ;;
+dotfiles-toggle-touchpad) set -- toggle touchpad "$@" ;;
+dotfiles-toggle-waybar) set -- toggle waybar "$@" ;;
+dotfiles-update-available) set -- status updates "$@" ;;
+dotfiles-voxtype-config) set -- voxtype config "$@" ;;
+dotfiles-voxtype-model) set -- voxtype model "$@" ;;
+dotfiles-voxtype-status) set -- voxtype status "$@" ;;
+dotfiles-window-close-all) set -- window close-all "$@" ;;
+dotfiles-window-pop) set -- window pop "$@" ;;
+dotfiles-workspace-layout-toggle) set -- workspace layout-toggle "$@" ;;
+*)
+	printf 'Unknown dotfiles script: %s\n' "$script_name" >&2
+	exit 2
+	;;
+esac
+
+if [[ -x $desktop_script ]]; then
+	exec "$desktop_script" "$@"
+fi
+
+exec bash "$desktop_script" "$@"

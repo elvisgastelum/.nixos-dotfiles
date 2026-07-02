@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Impala
+Comment=Terminal UI app managed by dotfiles
+Exec=dotfiles open-or-focus-tui impala
+Icon=network-wireless
+Terminal=false
+Categories=Network;
+StartupNotify=false

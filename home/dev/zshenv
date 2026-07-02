@@ -1,0 +1,2 @@
+export ZSH_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
+export ZDOTDIR="$ZSH_CONFIG_HOME"

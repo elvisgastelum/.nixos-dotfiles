@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Elgato HD60 X Preview
+GenericName=Capture Preview Window
+Comment=Open a 16:9 Elgato preview window for Google Meet sharing
+Exec=elgato-preview
+Icon=video-display
+Terminal=false
+Categories=AudioVideo;Video;
+StartupNotify=false

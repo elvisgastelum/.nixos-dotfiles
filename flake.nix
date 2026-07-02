@@ -8,26 +8,39 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    hunk = {
+      url = "github:modem-dev/hunk";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { nixpkgs, home-manager, ... }:
-    let
-      system = "x86_64-linux";
-    in
-    {
-      nixosConfigurations.desktop-rtx = nixpkgs.lib.nixosSystem {
-        inherit system;
+  outputs = {
+    nixpkgs,
+    home-manager,
+    hunk,
+    ...
+  }: let
+    system = "x86_64-linux";
+  in {
+    nixosConfigurations.desktop-rtx = nixpkgs.lib.nixosSystem {
+      inherit system;
 
-        modules = [
-          ./hosts/desktop-rtx/configuration.nix
-          home-manager.nixosModules.home-manager
-          {
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.backupFileExtension = "backup";
-            home-manager.users.dev = import ./home/dev/home.nix;
-          }
-        ];
-      };
+      modules = [
+        ./hosts/desktop-rtx/configuration.nix
+        home-manager.nixosModules.home-manager
+        {
+          home-manager.useGlobalPkgs = true;
+          home-manager.useUserPackages = true;
+          home-manager.backupFileExtension = "backup";
+          home-manager.users.dev = {
+            imports = [
+              hunk.homeManagerModules.default
+              ./home/dev/home.nix
+            ];
+          };
+        }
+      ];
     };
+  };
 }

@@ -1,0 +1,5 @@
+:ConfigSelect	config-loader.txt	/*:ConfigSelect*
+:ConfigSet	config-loader.txt	/*:ConfigSet*
+:ConfigStatus	config-loader.txt	/*:ConfigStatus*
+config-loader	config-loader.txt	/*config-loader*
+config-loader.txt	config-loader.txt	/*config-loader.txt*

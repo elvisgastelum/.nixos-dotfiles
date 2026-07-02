@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=OBS Studio (XWayland)
+GenericName=Streaming/Recording Software
+Comment=Launch OBS through XWayland to avoid native Wayland projector crashes
+Exec=obs-xwayland
+Icon=com.obsproject.Studio
+Terminal=false
+Categories=AudioVideo;Recorder;
+StartupNotify=true
+StartupWMClass=obs

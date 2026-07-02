@@ -1,0 +1,316 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": true,
+  "lsp": true,
+  "default_agent": "CodePlanner",
+  "instructions": ["AGENTS.md", "instructions/cost-aware-delegation.md"],
+  "skills": {
+    "paths": ["~/.config/opencode/skills"]
+  },
+  "permission": {
+    "edit": "deny",
+    "bash": "ask",
+    "task": "allow",
+    "skill": {
+      "*": "allow"
+    }
+  },
+  "agent": {
+    "plan": {
+      "disable": true
+    },
+    "build": {
+      "disable": true
+    },
+    "general": {
+      "disable": true
+    },
+    "explore": {
+      "disable": true
+    },
+    "CodePlanner": {
+      "mode": "primary",
+      "model": "openai/gpt-5.5",
+      "description": "Plans implementation work before code changes. Expensive orchestrator, no edits.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "hunk*": "allow"
+        },
+        "task": "allow",
+        "skill": {
+          "*": "allow"
+        }
+      },
+      "prompt": "You are CodePlanner, an expensive planning-only orchestrator. Never edit files and never run bash. Always stay cost-aware: delegate codebase discovery to CodeExplore, docs research to CodeResearch, type analysis to CodeTypes, lint analysis to CodeLint, UI review to CodeUI, and focused review to CodeReview. Keep your context small. Ask subagents narrow questions with exact expected outputs. Return detailed implementation plans with file-by-file guidance, risks, and validation steps."
+    },
+    "CodeBuilder": {
+      "mode": "primary",
+      "model": "openai/gpt-5.5",
+      "description": "Orchestrates implementation through cheaper subagents. Avoids direct edits.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "hunk*": "allow"
+        },
+        "task": "allow",
+        "skill": {
+          "*": "allow"
+        }
+      },
+      "prompt": "You are CodeBuilder, an implementation orchestrator. Do not edit files directly. First delegate unfamiliar discovery to CodeExplore. Then produce exact file-by-file, symbol-by-symbol instructions and delegate edits to CodeWriter. Use CodeFormatter for formatting, CodeLint for lint, CodeTypes for typecheck/schema issues, CodeTester for tests, CodeArtifactsCreator for builds, and CodeReview after non-trivial edits. Keep your context small and request concise subagent summaries."
+    },
+    "CodeGeneral": {
+      "mode": "primary",
+      "model": "openai/gpt-5.4",
+      "description": "Handles simple general tasks when specialized agents are unnecessary.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "allow",
+        "skill": {
+          "*": "allow"
+        }
+      },
+      "prompt": "You are CodeGeneral. Handle simple tasks only. For codebase work, delegate discovery to CodeExplore and implementation to CodeWriter. Do not edit files directly. Keep answers concise and cost-aware."
+    },
+    "SytemTester": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Runs verification, tests, and quality checks.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        }
+      },
+      "prompt": "You are SytemTester. Run only test and verification commands allowed by permissions. Summarize failures in max 3 lines. If failures are lint-related, report that CodeLint should be used by the primary agent. If type-related, report that CodeTypes should be used by the primary agent. Do not edit files."
+    },
+    "CodeTester": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Runs verification, tests, and quality checks.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        }
+      },
+      "prompt": "You are CodeTester. Run only test and verification commands allowed by permissions. Summarize failures in max 3 lines. If failures are lint-related, report that CodeLint should be used by the primary agent. If type-related, report that CodeTypes should be used by the primary agent. Do not edit files."
+    },
+    "CodeResearch": {
+      "mode": "subagent",
+      "model": "openrouter/deepseek/deepseek-v4-pro",
+      "description": "Researches current library, framework, SDK, API, CLI, and cloud-service documentation using Context7.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Use Context7 whenever current library, framework, SDK, API, CLI, or cloud documentation is needed. Resolve the library ID first, query docs with the full research question, and return concise findings with source/library context. Do not edit files. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeExplore": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Finds relevant files, symbols, dependencies, routes, tests, and implementation patterns before edits.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Explore the codebase for the requested topic. Return only relevant files, symbols, patterns, dependencies, existing conventions, risks, and concise recommendations. Do not edit files or run commands. Keep output compact. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeWriter": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Applies narrow code edits exactly as instructed by a primary orchestrator.",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Apply only the explicit file-by-file changes requested by the primary agent. Do not redesign, do not perform broad exploration, and do not run commands. If instructions are ambiguous, stop and ask for clarification. Return a concise summary of changed files and any uncertainty. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeGit": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Summarizes git status, diffs, changed files, and commit-readiness risks.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Inspect repository state only. Summarize changed files, risks, and whether changes appear ready for commit. Do not edit files. Keep output to max 3 lines unless asked otherwise. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeArtifactsCreator": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Inspects repository scripts and creates build/dist artifacts by running build commands.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Inspect package scripts only as needed, find the correct build command for the relevant package, and run it. Return max 2 lines summarizing success/failure and the concrete next action. Do not edit files. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeFormatter": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Fixes formatting and simple lint autofix issues.",
+      "permission": {
+        "edit": "allow",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Analyze formatting or autofixable lint failures. Identify the affected files and apply the minimal formatting/autofix change. Do not perform feature work. Return max 2 lines summarizing what was fixed. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeLint": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Investigates lint, formatting, import ordering, and style failures.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Analyze lint or formatting failures. Identify the exact rule, affected files, and minimal fix. Do not edit files. Return max 3 lines with the next concrete action. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeTypes": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Investigates TypeScript, typing, schema, generated API, and interface mismatch issues.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Analyze type-related issues only. Identify the smallest safe fix and explain the involved types, schemas, DTOs, generated clients, or interfaces. Do not edit files. Keep output concise. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeReview": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Reviews diffs or focused code areas for bugs, regressions, missing edge cases, and maintainability risks.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Review only the provided files or diff context. Prioritize correctness bugs, regressions, security issues, missing tests, maintainability risks, and over-engineering. Keep findings concise with file and line references when available. Do not edit files. Do not call other subagents or delegate work; return findings to the primary agent only."
+    },
+    "CodeUI": {
+      "mode": "subagent",
+      "model": "openrouter/tencent/hy3-preview",
+      "description": "Analyzes frontend UI structure, component usage, responsiveness, accessibility, and design-system consistency.",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "allow",
+          "hunk*": "allow",
+          "rm*": "ask"
+        },
+        "task": "deny"
+      },
+      "prompt": "Review frontend UI concerns only. Focus on existing design-system patterns, responsive behavior, accessibility, and minimal implementation guidance. Do not edit files. Do not call other subagents or delegate work; return findings to the primary agent only."
+    }
+  },
+  "command": {
+    "plan-cheap": {
+      "description": "Create a cost-aware implementation plan using cheap exploration subagents.",
+      "template": "Follow the always-on cost-aware delegation instructions. Do not edit files. Use CodeExplore for codebase discovery and CodeResearch for current docs if needed. Return a detailed implementation plan with files, symbols, risks, subagent usage, and validation steps."
+    },
+    "implement-cheap": {
+      "description": "Implement using cost-aware delegation through writer, formatter, lint, type, test, and review subagents.",
+      "template": "Follow the always-on cost-aware delegation instructions. First use CodeExplore unless the change is trivial. Then create exact file-by-file instructions and delegate edits to CodeWriter. Use CodeFormatter after edits. Use CodeLint, CodeTypes, CodeTester, and CodeReview as appropriate. Keep primary context small and return concise status."
+    },
+    "continue": {
+      "description": "Continue the current implementation end-to-end using the cost-aware delegation-first workflow.",
+      "template": "Continue the current implementation flow end-to-end using the always-on cost-aware delegation workflow. All subagent prompts and outputs must be in English. Act as an orchestrator: keep your own context small, avoid direct edits, and delegate as much work as possible to cheaper specialized subagents. First determine the current implementation state from the conversation and, if needed, use CodeGit for changed-file status and CodeExplore for missing codebase context. Do not run git, lint, typecheck, test, or build commands directly; delegate those to the appropriate subagents. For every subagent call, provide deeply detailed and explicit instructions because subagents may be smaller models: include the exact goal, files/folders to inspect or change, non-goals, whether edits are allowed, expected output format, and max summary length. Use CodeExplore for discovery, CodeResearch for current docs, CodeWriter for exact file-by-file edits, CodeFormatter for formatting/autofix, CodeLint for lint analysis, CodeTypes for TypeScript/schema/generated-client issues, CodeTester for tests, CodeArtifactsCreator for builds, CodeReview for focused review, CodeUI for frontend UI concerns, and CodeGit for repo-state summaries. If more information is needed, call additional targeted subagents instead of expanding primary context. After edits, run the appropriate delegated verification flow and review. Return a concise final status with: subagents used, files changed or planned, verification results, remaining risks, and next recommended action."
+    },
+    "commit": {
+      "description": "Commit changes using CodeGit.",
+      "template": "Use CodeGit to commit changes. Do not edit files. Return a concise summary of the commit using semantic commit title. Do not add a body commit content, just a git title."
+    },
+    "prepare-next-prompt": {
+      "description": "Prepare next prompt for this project.",
+      "template": "Based at the current state and kanban progress, please give me the next prompt to process the next step needed."
+    },
+    "review-cheap": {
+      "description": "Review current work using cheap focused review and git-summary subagents.",
+      "template": "Follow the always-on cost-aware delegation instructions. Use CodeGit to summarize changed files, then CodeReview for focused correctness and maintainability review. Use CodeLint or CodeTypes only if relevant. Do not edit files."
+    },
+    "verify-cheap": {
+      "description": "Run cost-aware verification through lint, typecheck, tests, and builds.",
+      "template": "Follow the always-on cost-aware delegation instructions. Use CodeLint for lint, CodeTypes for typecheck, CodeTester for tests, and CodeArtifactsCreator for builds. Ask each subagent for max 2-3 line summaries. Do not edit files except by delegating formatting/autofix to CodeFormatter if explicitly needed."
+    },
+    "review": {
+      "description": "Review a hunk of code using CodeReview.",
+      "template": "Use CodeReview to review the code using hunk. Do not edit files. Add to hunk comments if needed. Return a concise summary of the review."
+    },
+    "read-review": {
+      "description": "Fix a hunk of code using CodeReview.",
+      "template": "Use CodeReview to review the code using hunk. Do not edit files. Return all the details of the review."
+    }
+  },
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "headers": {
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      }
+    },
+    "nixos": {
+      "type": "local",
+      "command": ["nix", "run", "github:utensils/mcp-nixos", "--"],
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

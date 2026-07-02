@@ -1,0 +1,2801 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles"
+SOURCE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/source.env"
+DEFAULTS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/defaults.env"
+MENU_WIDTH="${DOTFILES_MENU_WIDTH:-420}"
+MENU_HEIGHT="${DOTFILES_MENU_HEIGHT:-630}"
+
+if [[ -f $SOURCE_FILE ]]; then
+	# shellcheck source=/dev/null
+	source "$SOURCE_FILE"
+fi
+
+if [[ -f $DEFAULTS_FILE ]]; then
+	# shellcheck source=/dev/null
+	source "$DEFAULTS_FILE"
+fi
+
+command_present() {
+	command -v "$1" >/dev/null 2>&1
+}
+
+die() {
+	printf '%s\n' "$1" >&2
+	exit "${2:-1}"
+}
+
+notify() {
+	notify-send -u low "$@" 2>/dev/null || true
+}
+
+run_background() {
+	if command_present uwsm-app; then
+		setsid uwsm-app -- "$@" >/dev/null 2>&1 &
+	else
+		setsid "$@" >/dev/null 2>&1 &
+	fi
+}
+
+shell_join() {
+	local arg quoted output=""
+
+	for arg in "$@"; do
+		printf -v quoted '%q' "$arg"
+		output="${output:+$output }$quoted"
+	done
+
+	printf '%s\n' "$output"
+}
+
+slugify() {
+	printf '%s' "$1" |
+		tr '[:upper:]' '[:lower:]' |
+		tr -cs '[:alnum:]' '-' |
+		sed -e 's/^-//' -e 's/-$//'
+}
+
+source_dir_from_candidate() {
+	local candidate="$1"
+
+	[[ -n $candidate ]] || return 1
+
+	if [[ -d $candidate/home && (-d $candidate/home/dot_config || -d $candidate/home/dot_local || -f $candidate/home/.chezmoiignore) ]]; then
+		(cd "$candidate/home" >/dev/null 2>&1 && pwd -P)
+		return 0
+	fi
+
+	if [[ -d $candidate && (-d $candidate/dot_config || -d $candidate/dot_local || -f $candidate/.chezmoiignore) ]]; then
+		(cd "$candidate" >/dev/null 2>&1 && pwd -P)
+		return 0
+	fi
+
+	return 1
+}
+
+managed_source_dir() {
+	local candidate script_dir source_path
+
+	for candidate in "${DOTFILES_SOURCE_DIR:-}" "${DOTFILES_REPO:-}"; do
+		if source_dir_from_candidate "$candidate"; then
+			return 0
+		fi
+	done
+
+	if script_dir=$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd -P); then
+		for candidate in "$script_dir/../.." "$script_dir/../../.."; do
+			if source_dir_from_candidate "$candidate"; then
+				return 0
+			fi
+		done
+	fi
+
+	for candidate in "$PWD" "$PWD/home"; do
+		if source_dir_from_candidate "$candidate"; then
+			return 0
+		fi
+	done
+
+	if command_present chezmoi; then
+		source_path=$(chezmoi source-path 2>/dev/null || true)
+		if source_dir_from_candidate "$source_path"; then
+			return 0
+		fi
+	fi
+
+	return 1
+}
+
+managed_apps() {
+	local source_dir
+
+	source_dir=$(managed_source_dir) || return 0
+
+	(
+		local app name path target
+
+		shopt -s nullglob
+
+		for path in "$source_dir"/dot_config/*; do
+			name=${path##*/}
+			target=${name%.tmpl}
+			app=${target%.*}
+			printf '%s\n' "$app"
+		done
+
+		for path in "$source_dir"/dot_* "$source_dir"/create_dot_*; do
+			case "$path" in
+			*/dot_config | */dot_local) continue ;;
+			esac
+
+			name=${path##*/}
+			name=${name#create_}
+			target=.${name#dot_}
+			app=${target#.}
+			app=${app%rc}
+			printf '%s\n' "$app"
+		done
+
+		if [[ -d $source_dir/dot_local/bin ]]; then
+			printf '%s\n' local-bin
+		fi
+
+		for path in "$source_dir"/dot_local/share/*; do
+			printf '%s\n' "${path##*/}"
+		done
+
+		if [[ -e $source_dir/dot_config/obs-studio ]]; then
+			printf '%s\n' obs
+		fi
+	) | sort -u
+}
+
+managed_app_target() {
+	local app="$1" source_dir
+
+	source_dir=$(managed_source_dir) || return 1
+
+	(
+		local candidate name path target
+
+		shopt -s nullglob
+
+		for path in "$source_dir"/dot_config/*; do
+			name=${path##*/}
+			target=${name%.tmpl}
+			candidate=${target%.*}
+			if [[ $candidate == "$app" ]]; then
+				printf '%s\n' "$HOME/.config/$target"
+				return 0
+			fi
+		done
+
+		for path in "$source_dir"/dot_* "$source_dir"/create_dot_*; do
+			case "$path" in
+			*/dot_config | */dot_local) continue ;;
+			esac
+
+			name=${path##*/}
+			name=${name#create_}
+			target=.${name#dot_}
+			candidate=${target#.}
+			candidate=${candidate%rc}
+			if [[ $candidate == "$app" ]]; then
+				printf '%s\n' "$HOME/$target"
+				return 0
+			fi
+		done
+
+		if [[ $app == local-bin && -d $source_dir/dot_local/bin ]]; then
+			printf '%s\n' "$HOME/.local/bin"
+			return 0
+		fi
+
+		for path in "$source_dir"/dot_local/share/*; do
+			candidate=${path##*/}
+			if [[ $candidate == "$app" ]]; then
+				printf '%s\n' "$HOME/.local/share/$candidate"
+				return 0
+			fi
+		done
+
+		if [[ $app == obs && -e $source_dir/dot_config/obs-studio ]]; then
+			printf '%s\n' "$HOME/.config/obs-studio"
+			return 0
+		fi
+
+		return 1
+	)
+}
+
+restart_services() {
+	printf '%s\n' \
+		alacritty \
+		btop \
+		foot \
+		ghostty \
+		hypr \
+		hyprctl \
+		hypridle \
+		hyprland \
+		hyprsunset \
+		kitty \
+		mako \
+		swayosd \
+		terminal \
+		tmux \
+		walker \
+		waybar
+}
+
+reset_targets() {
+	printf '%s\n' ratune
+}
+
+show_managed_apps() {
+	local app separator=""
+
+	printf 'Supported apps:\n  '
+	while IFS= read -r app; do
+		printf '%s%s' "$separator" "$app"
+		separator=' '
+	done < <(managed_apps)
+	printf '\n\nExample: dotfiles diff alacritty\n'
+}
+
+check_chezmoi() {
+	command_present chezmoi || die 'chezmoi is required but not installed.' 127
+}
+
+managed_chezmoi() {
+	local action="$1" app="${2:-}" source_dir target
+
+	if [[ $# -gt 2 ]]; then
+		die "Usage: dotfiles $action [app]" 2
+	fi
+
+	check_chezmoi
+	source_dir=$(managed_source_dir) || die 'Could not locate the dotfiles source directory.' 2
+
+	if [[ -n $app ]]; then
+		target=$(managed_app_target "$app") || {
+			printf 'Unknown app: %s\n' "$app" >&2
+			printf 'Available apps: ' >&2
+			managed_apps | tr '\n' ' ' >&2
+			printf '\n' >&2
+			exit 2
+		}
+
+		case "$action" in
+		diff) printf 'Diffing %s: %s\n' "$app" "$target" ;;
+		apply) printf 'Applying %s: %s\n' "$app" "$target" ;;
+		esac
+
+		chezmoi --source "$source_dir" "$action" "$target"
+	else
+		case "$action" in
+		diff) printf 'Diffing all managed dotfiles\n' ;;
+		apply) printf 'Applying all managed dotfiles\n' ;;
+		esac
+
+		chezmoi --source "$source_dir" "$action"
+	fi
+}
+
+completion_command() {
+	case "${1:-}" in
+	managed-apps) managed_apps ;;
+	restart-services) restart_services ;;
+	reset-targets) reset_targets ;;
+	*) die 'Usage: dotfiles complete managed-apps|restart-services|reset-targets' 2 ;;
+	esac
+}
+
+show_help() {
+	case "${1:-}" in
+	"" | dotfiles)
+		cat <<'EOF'
+dotfiles - unified desktop and dotfiles helper
+
+Usage:
+  dotfiles <command> [args...]
+  dotfiles help [command]
+
+Core commands:
+  help [command]                         Show help
+  apps                                   List managed app/config names
+  diff [app]                             Preview managed dotfile changes
+  apply [app]                            Apply managed dotfile changes
+  menu [section]                         Open the Walker dotfiles menu
+  restart <service>                      Restart a desktop service
+  reset ratune                           Reset stored app credentials/state
+  screensaver [force|run]                Launch or run the terminal screensaver
+  open-app <desktop-id|command> [args...] Open a desktop app or command
+  open-or-focus <pattern> [command...]   Focus an existing window or launch
+  open-tui <command> [args...]           Open a terminal UI app
+  open-or-focus-tui <command> [args...]  Focus or open a terminal UI app
+  open-web-app <name> <url>              Open a browser app window
+  open-or-focus-web-app <name> <url>     Focus or open a browser app window
+  open-or-focus-browser [url...]         Focus or open the main browser window
+  create-web-app [name url [icon]]       Create a managed web app launcher
+  create-tui-app [name command [icon]]   Create a managed TUI app launcher
+  open-browser [--private] [url...]      Open the default browser
+  edit [file...]                         Edit files with the default editor
+  set browser|terminal|editor <value>    Change runtime defaults
+  shell-auto-complete --bash|--zsh       Print shell completion code
+
+Desktop commands:
+  capture screenshot|screenrecording
+  toggle waybar|idle|nightlight|notifications|touchpad
+  status [app]|battery|updates|voxtype
+  control wifi|bluetooth|audio
+  system lock|wake|update|timezone|power-menu
+  window close-all|pop
+  workspace layout-toggle|monitor-scaling-cycle
+  brightness display|keyboard ...
+  audio input-mute|output-switch
+  osd [swayosd-client args...]
+  walker [walker args...]
+  input <prompt> [walker args...]
+
+Examples:
+  dotfiles menu
+  dotfiles apps
+  dotfiles diff walker
+  dotfiles apply walker
+  dotfiles restart waybar
+  dotfiles reset ratune
+  dotfiles open-browser --private
+  dotfiles edit ~/.config/hypr/bindings.conf
+  dotfiles set editor nvim
+  dotfiles set terminal Alacritty.desktop
+  dotfiles shell-auto-complete --bash
+  dotfiles create-web-app ChatGPT https://chatgpt.com web-browser
+  dotfiles create-tui-app Btop btop utilities-system-monitor
+
+Run 'man dotfiles' for the full manual.
+EOF
+		;;
+	apps)
+		cat <<'EOF'
+Usage:
+  dotfiles apps
+
+List app/config names discovered from the managed chezmoi source tree.
+EOF
+		;;
+	diff | apply)
+		cat <<EOF
+Usage:
+  dotfiles $1 [app]
+
+With no app, runs '$1' for all managed dotfiles. With an app, limits '$1' to that managed target.
+
+Examples:
+  dotfiles $1 walker
+  dotfiles $1 hypr
+EOF
+		;;
+	status)
+		cat <<'EOF'
+Usage:
+  dotfiles status [app]
+  dotfiles status battery|updates|voxtype
+
+With no app, shows chezmoi status for all managed dotfiles. With a managed app name, limits status to that target. Desktop status subcommands are still used by Waybar and notifications.
+EOF
+		;;
+	set)
+		cat <<'EOF'
+Usage:
+  dotfiles set browser <desktop-id|command>
+  dotfiles set terminal <desktop-id|command>
+  dotfiles set editor <command>
+
+Examples:
+  dotfiles set browser brave-origin-beta.desktop
+  dotfiles set terminal Alacritty.desktop
+  dotfiles set editor nvim
+
+Browser defaults are written to XDG settings and ~/.config/dotfiles/defaults.env.
+Terminal defaults are written to ~/.config/xdg-terminals.list.
+Editor defaults are written to ~/.config/dotfiles/defaults.env.
+EOF
+		;;
+	restart)
+		cat <<'EOF'
+Usage:
+  dotfiles restart <service>
+
+Services:
+EOF
+		local separator service
+		separator=""
+		printf '  '
+		while IFS= read -r service; do
+			printf '%s%s' "$separator" "$service"
+			separator=' '
+		done < <(restart_services)
+		printf '\n'
+		;;
+	reset)
+		cat <<'EOF'
+Usage:
+  dotfiles reset ratune
+
+Reset app-specific stored state. Currently supported targets:
+  ratune    Remove Ratune's Linux keyutils Subsonic password key so Ratune prompts again.
+EOF
+		;;
+	menu)
+		cat <<'EOF'
+Usage:
+  dotfiles menu [section]
+
+Sections:
+  apps keybindings learn trigger style setup tui web webapp webapps install remove update about system power
+EOF
+		;;
+	shell-auto-complete)
+		cat <<'EOF'
+Usage:
+  dotfiles shell-auto-complete --bash
+  dotfiles shell-auto-complete --zsh
+
+Print shell completion code to stdout.
+EOF
+		;;
+	*)
+		printf 'No detailed help for %s. Run: dotfiles help\n' "$1" >&2
+		return 2
+		;;
+	esac
+}
+
+shell_auto_complete_bash() {
+	cat <<'EOF'
+_dotfiles_complete() {
+	local cur command_name
+	local top_commands menu_sections managed_apps restart_services reset_targets set_defaults screensaver_modes
+	local capture_commands toggle_commands status_commands control_commands system_commands
+	local window_commands workspace_commands brightness_commands audio_commands voxtype_commands
+
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+	command_name="${COMP_WORDS[1]:-}"
+
+	top_commands="help apps diff apply menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete"
+	menu_sections="apps keybindings learn trigger style setup tui tuis web webapp webapps install remove update about system power defaults"
+	set_defaults="browser terminal editor"
+	screensaver_modes="force run launch"
+	capture_commands="screenshot screenrecording screenrecord"
+	toggle_commands="waybar topbar idle idle-lock nightlight night-light notifications notification-silencing touchpad"
+	status_commands="battery updates update-available voxtype"
+	control_commands="wifi bluetooth audio"
+	system_commands="lock wake update timezone tz-select power-menu power"
+	window_commands="close-all pop"
+	workspace_commands="layout-toggle monitor-scaling-cycle"
+	brightness_commands="display keyboard"
+	audio_commands="input-mute output-switch"
+	voxtype_commands="status config model"
+
+	if ((COMP_CWORD == 1)); then
+		COMPREPLY=($(compgen -W "$top_commands" -- "$cur"))
+		return 0
+	fi
+
+	case "$command_name" in
+	help)
+		COMPREPLY=($(compgen -W "$top_commands" -- "$cur"))
+		;;
+	diff | apply)
+		managed_apps="$(dotfiles complete managed-apps 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$managed_apps" -- "$cur"))
+		;;
+	menu)
+		COMPREPLY=($(compgen -W "$menu_sections" -- "$cur"))
+		;;
+	restart)
+		restart_services="$(dotfiles complete restart-services 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$restart_services" -- "$cur"))
+		;;
+	reset)
+		reset_targets="$(dotfiles complete reset-targets 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$reset_targets" -- "$cur"))
+		;;
+	screensaver)
+		COMPREPLY=($(compgen -W "$screensaver_modes" -- "$cur"))
+		;;
+	set)
+		COMPREPLY=($(compgen -W "$set_defaults" -- "$cur"))
+		;;
+	capture)
+		COMPREPLY=($(compgen -W "$capture_commands" -- "$cur"))
+		;;
+	toggle)
+		COMPREPLY=($(compgen -W "$toggle_commands" -- "$cur"))
+		;;
+	status)
+		managed_apps="$(dotfiles complete managed-apps 2>/dev/null || true)"
+		COMPREPLY=($(compgen -W "$status_commands $managed_apps" -- "$cur"))
+		;;
+	control)
+		COMPREPLY=($(compgen -W "$control_commands" -- "$cur"))
+		;;
+	system)
+		COMPREPLY=($(compgen -W "$system_commands" -- "$cur"))
+		;;
+	window)
+		COMPREPLY=($(compgen -W "$window_commands" -- "$cur"))
+		;;
+	workspace)
+		COMPREPLY=($(compgen -W "$workspace_commands" -- "$cur"))
+		;;
+	brightness)
+		COMPREPLY=($(compgen -W "$brightness_commands" -- "$cur"))
+		;;
+	audio)
+		COMPREPLY=($(compgen -W "$audio_commands" -- "$cur"))
+		;;
+	voxtype)
+		COMPREPLY=($(compgen -W "$voxtype_commands" -- "$cur"))
+		;;
+	shell-auto-complete)
+		COMPREPLY=($(compgen -W "--bash --zsh" -- "$cur"))
+		;;
+	edit)
+		COMPREPLY=($(compgen -f -- "$cur"))
+		;;
+	open-app | open-tui | open-or-focus-tui | open-floating-terminal)
+		if ((COMP_CWORD == 2)); then
+			COMPREPLY=($(compgen -c -- "$cur"))
+		fi
+		;;
+	esac
+}
+
+complete -F _dotfiles_complete dotfiles
+EOF
+}
+
+shell_auto_complete_zsh() {
+	cat <<'EOF'
+#compdef dotfiles
+
+_dotfiles() {
+	local -a top_commands menu_sections managed_apps restart_services reset_targets set_defaults screensaver_modes
+	local -a capture_commands toggle_commands status_commands control_commands system_commands
+	local -a window_commands workspace_commands brightness_commands audio_commands voxtype_commands shell_options
+
+	top_commands=(help apps diff apply menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete)
+	menu_sections=(apps keybindings learn trigger style setup tui tuis web webapp webapps install remove update about system power defaults)
+	managed_apps=(${(f)"$(dotfiles complete managed-apps 2>/dev/null)"})
+	restart_services=(${(f)"$(dotfiles complete restart-services 2>/dev/null)"})
+	reset_targets=(${(f)"$(dotfiles complete reset-targets 2>/dev/null)"})
+	set_defaults=(browser terminal editor)
+	screensaver_modes=(force run launch)
+	capture_commands=(screenshot screenrecording screenrecord)
+	toggle_commands=(waybar topbar idle idle-lock nightlight night-light notifications notification-silencing touchpad)
+	status_commands=(battery updates update-available voxtype)
+	control_commands=(wifi bluetooth audio)
+	system_commands=(lock wake update timezone tz-select power-menu power)
+	window_commands=(close-all pop)
+	workspace_commands=(layout-toggle monitor-scaling-cycle)
+	brightness_commands=(display keyboard)
+	audio_commands=(input-mute output-switch)
+	voxtype_commands=(status config model)
+	shell_options=(--bash --zsh)
+
+	if ((CURRENT == 2)); then
+		_values 'dotfiles command' $top_commands
+		return
+	fi
+
+	case "$words[2]" in
+		help) _values 'dotfiles command' $top_commands ;;
+		diff | apply) _values 'managed app' $managed_apps ;;
+		menu) _values 'menu section' $menu_sections ;;
+		restart) _values 'restart service' $restart_services ;;
+		reset) _values 'reset target' $reset_targets ;;
+		screensaver) _values 'screensaver mode' $screensaver_modes ;;
+		set) _values 'default' $set_defaults ;;
+		capture) _values 'capture command' $capture_commands ;;
+		toggle) _values 'toggle command' $toggle_commands ;;
+		status) _values 'status command or managed app' $status_commands $managed_apps ;;
+		control) _values 'control command' $control_commands ;;
+		system) _values 'system command' $system_commands ;;
+		window) _values 'window command' $window_commands ;;
+		workspace) _values 'workspace command' $workspace_commands ;;
+		brightness) _values 'brightness command' $brightness_commands ;;
+		audio) _values 'audio command' $audio_commands ;;
+		voxtype) _values 'voxtype command' $voxtype_commands ;;
+		shell-auto-complete) _values 'shell' $shell_options ;;
+		edit) _files ;;
+		open-app | open-tui | open-or-focus-tui | open-floating-terminal) _path_commands ;;
+	esac
+}
+
+compdef _dotfiles dotfiles
+EOF
+}
+
+shell_auto_complete_command() {
+	case "${1:-}" in
+	--bash) shell_auto_complete_bash ;;
+	--zsh) shell_auto_complete_zsh ;;
+	*) die 'Usage: dotfiles shell-auto-complete --bash|--zsh' 2 ;;
+	esac
+}
+
+focused_monitor() {
+	if command_present hyprctl && command_present jq; then
+		hyprctl monitors -j | jq -r '.[] | select(.focused) | .name' 2>/dev/null | head -n1
+	fi
+}
+
+desktop_search_dirs() {
+	local dir
+	local -a data_dirs=()
+
+	printf '%s\n' "$APP_DIR"
+
+	IFS=: read -r -a data_dirs <<<"${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+	for dir in "${data_dirs[@]}"; do
+		[[ -n $dir ]] && printf '%s\n' "$dir/applications"
+	done
+}
+
+desktop_value() {
+	local file="$1"
+	local key="$2"
+	local current_key current_value
+
+	while IFS='=' read -r current_key current_value || [[ -n ${current_key:-} ]]; do
+		if [[ $current_key == "$key" ]]; then
+			printf '%s\n' "$current_value"
+			return 0
+		fi
+	done <"$file"
+
+	return 1
+}
+
+desktop_file_for_id() {
+	local id="$1"
+	local dir candidate
+
+	if [[ -f $id ]]; then
+		printf '%s\n' "$id"
+		return 0
+	fi
+
+	[[ $id == *.desktop ]] || id="$id.desktop"
+
+	while IFS= read -r dir; do
+		candidate="$dir/$id"
+		if [[ -f $candidate ]]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done < <(desktop_search_dirs)
+
+	return 1
+}
+
+desktop_exec_binary() {
+	local file="$1"
+	local exec_line first
+
+	exec_line=$(desktop_value "$file" Exec || true)
+	[[ -n $exec_line ]] || return 1
+
+	exec_line=${exec_line//\"/}
+	exec_line=${exec_line#env }
+	first=${exec_line%% *}
+	first=${first##*/}
+	printf '%s\n' "$first"
+}
+
+desktop_id_for_value() {
+	local value="$1"
+	local dir file name binary
+
+	if file=$(desktop_file_for_id "$value" 2>/dev/null); then
+		basename "$file"
+		return 0
+	fi
+
+	while IFS= read -r dir; do
+		shopt -s nullglob
+		for file in "$dir"/*.desktop; do
+			binary=$(desktop_exec_binary "$file" || true)
+			name=$(desktop_value "$file" Name || true)
+			if [[ $binary == "$value" || $name == "$value" ]]; then
+				basename "$file"
+				shopt -u nullglob
+				return 0
+			fi
+		done
+		shopt -u nullglob
+	done < <(desktop_search_dirs)
+
+	if [[ $value == *.desktop ]]; then
+		printf '%s\n' "$value"
+	else
+		printf '%s.desktop\n' "$value"
+	fi
+}
+
+default_browser_exec() {
+	local desktop browser_exec file
+
+	desktop=${DOTFILES_BROWSER_DESKTOP:-}
+	if [[ -z $desktop ]] && command_present xdg-settings; then
+		desktop=$(xdg-settings get default-web-browser 2>/dev/null || true)
+	fi
+
+	if [[ -n $desktop ]] && file=$(desktop_file_for_id "$desktop" 2>/dev/null); then
+		browser_exec=$(desktop_value "$file" Exec || true)
+		browser_exec=${browser_exec//\"/}
+		browser_exec=${browser_exec#env }
+		browser_exec=${browser_exec%% *}
+		if [[ -n $browser_exec ]]; then
+			printf '%s\n' "$browser_exec"
+			return 0
+		fi
+	fi
+
+	if [[ -n ${BROWSER:-} ]]; then
+		printf '%s\n' "$BROWSER"
+	elif command_present brave-origin-beta; then
+		printf '%s\n' brave-origin-beta
+	elif command_present google-chrome-stable; then
+		printf '%s\n' google-chrome-stable
+	elif command_present chromium; then
+		printf '%s\n' chromium
+	elif command_present xdg-open; then
+		printf '%s\n' xdg-open
+	else
+		return 1
+	fi
+}
+
+set_default_var() {
+	local name="$1"
+	local value="$2"
+	local dir tmp line wrote=false
+
+	dir=$(dirname "$DEFAULTS_FILE")
+	mkdir -p "$dir"
+	touch "$DEFAULTS_FILE"
+	tmp=$(mktemp)
+
+	while IFS= read -r line || [[ -n ${line:-} ]]; do
+		if [[ $line == "export $name="* ]]; then
+			printf 'export %s=%q\n' "$name" "$value" >>"$tmp"
+			wrote=true
+		else
+			printf '%s\n' "$line" >>"$tmp"
+		fi
+	done <"$DEFAULTS_FILE"
+
+	if [[ $wrote == false ]]; then
+		printf 'export %s=%q\n' "$name" "$value" >>"$tmp"
+	fi
+
+	mv "$tmp" "$DEFAULTS_FILE"
+}
+
+set_default_browser() {
+	local value="$1"
+	local desktop_id mime
+
+	desktop_id=$(desktop_id_for_value "$value")
+	set_default_var DOTFILES_BROWSER_DESKTOP "$desktop_id"
+
+	if command_present xdg-settings; then
+		xdg-settings set default-web-browser "$desktop_id" 2>/dev/null || true
+	fi
+
+	if command_present xdg-mime; then
+		for mime in text/html x-scheme-handler/http x-scheme-handler/https; do
+			xdg-mime default "$desktop_id" "$mime" 2>/dev/null || true
+		done
+	fi
+
+	notify "Default browser set" "$desktop_id"
+	printf 'Default browser: %s\n' "$desktop_id"
+}
+
+set_default_terminal() {
+	local value="$1"
+	local desktop_id file
+
+	desktop_id=$(desktop_id_for_value "$value")
+	file="${XDG_CONFIG_HOME:-$HOME/.config}/xdg-terminals.list"
+	mkdir -p "$(dirname "$file")"
+	{
+		printf '# Terminal emulator preference order for xdg-terminal-exec\n'
+		printf '# The first found and valid terminal will be used\n'
+		printf '%s\n' "$desktop_id"
+	} >"$file"
+	set_default_var TERMINAL xdg-terminal-exec
+	set_default_var DOTFILES_TERMINAL_DESKTOP "$desktop_id"
+	notify "Default terminal set" "$desktop_id"
+	printf 'Default terminal: %s\n' "$desktop_id"
+}
+
+set_default_editor() {
+	local value="$1"
+
+	set_default_var EDITOR "$value"
+	set_default_var VISUAL "$value"
+	notify "Default editor set" "$value"
+	printf 'Default editor: %s\n' "$value"
+}
+
+set_default() {
+	local kind="${1:-}"
+	local value="${2:-}"
+
+	[[ -n $kind && -n $value ]] || die 'Usage: dotfiles set browser|terminal|editor <value>' 2
+
+	case "$kind" in
+	browser) set_default_browser "$value" ;;
+	terminal) set_default_terminal "$value" ;;
+	editor) set_default_editor "$value" ;;
+	*) die "Unknown default: $kind" 2 ;;
+	esac
+}
+
+cmd_terminal_cwd() {
+	local terminal_pid shell_pid cwd shell
+
+	terminal_pid=$(hyprctl activewindow 2>/dev/null | awk '/pid:/ {print $2}' || true)
+	shell_pid=$(pgrep -P "${terminal_pid:-}" 2>/dev/null | tail -n1 || true)
+
+	if [[ -n ${shell_pid:-} ]]; then
+		cwd=$(readlink -f "/proc/$shell_pid/cwd" 2>/dev/null || true)
+		shell=$(readlink -f "/proc/$shell_pid/exe" 2>/dev/null || true)
+
+		if grep -qs "$shell" /etc/shells && [[ -d ${cwd:-} ]]; then
+			printf '%s\n' "$cwd"
+			return
+		fi
+	fi
+
+	printf '%s\n' "$HOME"
+}
+
+launch_or_focus() {
+	local window_pattern launch_command window_address
+
+	if (($# == 0)); then
+		die 'Usage: dotfiles open-or-focus <window-pattern> [launch-command...]' 2
+	fi
+
+	window_pattern=$1
+	shift
+	if (($# == 1)); then
+		launch_command=$1
+	elif (($# > 1)); then
+		launch_command=$(shell_join "$@")
+	else
+		launch_command=$(shell_join uwsm-app -- "$window_pattern")
+	fi
+
+	window_address=$(hyprctl clients -j | jq -r --arg p "$window_pattern" '.[] | select((.class | test($p; "i")) or (.title | test($p; "i"))) | .address' | head -n1)
+
+	if [[ -n $window_address ]]; then
+		exec hyprctl dispatch focuswindow "address:$window_address"
+	fi
+
+	eval exec setsid "$launch_command"
+}
+
+launch_tui() {
+	local app_id command_name
+
+	if (($# == 0)); then
+		die 'Usage: dotfiles open-tui <command> [args...]' 2
+	fi
+
+	command_name=$(basename "$1")
+	app_id="org.dotfiles.$command_name"
+
+	if command_present alacritty; then
+		if command_present uwsm-app; then
+			exec setsid uwsm-app -- alacritty --class "$app_id" -e "$@"
+		fi
+
+		exec setsid alacritty --class "$app_id" -e "$@"
+	fi
+
+	if command_present uwsm-app && command_present xdg-terminal-exec; then
+		exec setsid uwsm-app -- xdg-terminal-exec --app-id="$app_id" -e "$@"
+	fi
+
+	exec "$@"
+}
+
+launch_or_focus_tui() {
+	local command_name launch_command
+
+	if (($# == 0)); then
+		die 'Usage: dotfiles open-or-focus-tui <command> [args...]' 2
+	fi
+
+	command_name=$(basename "$1")
+	launch_command=$(shell_join dotfiles open-tui "$@")
+	exec dotfiles open-or-focus "org.dotfiles.$command_name" "$launch_command"
+}
+
+launch_browser() {
+	local browser private_flag=() browser_args=()
+	local arg
+
+	browser=$(default_browser_exec)
+
+	for arg in "$@"; do
+		if [[ $arg == --private ]]; then
+			if "$browser" --help 2>&1 | grep -q MOZ_LOG; then
+				private_flag=(--private-window)
+			elif [[ $browser =~ edge ]]; then
+				private_flag=(--inprivate)
+			else
+				private_flag=(--incognito)
+			fi
+		else
+			browser_args+=("$arg")
+		fi
+	done
+
+	if command_present uwsm-app; then
+		exec setsid uwsm-app -- "$browser" "${private_flag[@]}" "${browser_args[@]}"
+	fi
+
+	exec setsid "$browser" "${private_flag[@]}" "${browser_args[@]}"
+}
+
+launch_or_focus_browser() {
+	local browser browser_name app_id="dotfiles-browser" state_file="$STATE_DIR/browser-window"
+	local pattern address before_file attempt
+
+	browser=$(default_browser_exec)
+	browser_name=$(basename "$browser")
+	pattern="$app_id|^$browser_name$"
+
+	case "$browser_name" in
+	chromium | chromium-browser) pattern="$pattern|^chromium$" ;;
+	brave*) pattern="$pattern|^brave-origin-beta$|^brave-browser$" ;;
+	google-chrome*) pattern="$pattern|^google-chrome$" ;;
+	microsoft-edge*) pattern="$pattern|^microsoft-edge$" ;;
+	firefox*) pattern="$pattern|^firefox$" ;;
+	zen*) pattern="$pattern|^zen$" ;;
+	librewolf*) pattern="$pattern|^librewolf$" ;;
+	esac
+
+	mkdir -p "$STATE_DIR"
+
+	if [[ -s $state_file ]]; then
+		address=$(<"$state_file")
+		if hyprctl clients -j | jq -e --arg address "$address" '.[] | select(.address == $address)' >/dev/null 2>&1; then
+			exec hyprctl dispatch focuswindow "address:$address"
+		fi
+		rm -f "$state_file"
+	fi
+
+	if [[ $browser == xdg-open ]]; then
+		exec dotfiles open-browser "$@"
+	fi
+
+	before_file=$(mktemp)
+	hyprctl clients -j | jq -r '.[].address' >"$before_file"
+	run_background "$browser" --new-window --name="$app_id" "$@"
+
+	for attempt in 1 2 3 4 5 6 7 8 9 10; do
+		sleep 0.2
+		address=$(hyprctl clients -j | jq -r --rawfile before "$before_file" --arg p "$pattern" '[.[] as $client | select(($before | split("\n") | index($client.address) | not) and (((($client.class // "") | test($p; "i")) or (($client.initialClass // "") | test($p; "i")) or (($client.title // "") | test($p; "i")))) ) | $client.address][0] // empty')
+		[[ -n $address ]] && break
+	done
+
+	rm -f "$before_file"
+
+	if [[ -z ${address:-} ]]; then
+		address=$(hyprctl clients -j | jq -r --arg p "$pattern" '[.[] as $client | select((($client.class // "") | test($p; "i")) or (($client.initialClass // "") | test($p; "i")) or (($client.title // "") | test($p; "i"))) | $client.address][0] // empty')
+	fi
+
+	if [[ -n ${address:-} ]]; then
+		printf '%s\n' "$address" >"$state_file"
+		exec hyprctl dispatch focuswindow "address:$address"
+	fi
+}
+
+launch_webapp() {
+	local name url browser
+
+	if (($# < 2)); then
+		die 'Usage: dotfiles open-web-app <name> <url>' 2
+	fi
+
+	name=$1
+	url=$2
+	browser=$(default_browser_exec)
+
+	if [[ $browser == xdg-open ]]; then
+		exec setsid xdg-open "$url"
+	fi
+
+	if command_present uwsm-app; then
+		exec setsid uwsm-app -- "$browser" --app="$url" --name="$name"
+	fi
+
+	exec setsid "$browser" --app="$url" --name="$name"
+}
+
+launch_or_focus_webapp() {
+	local pattern launch_command
+
+	if (($# < 2)); then
+		die 'Usage: dotfiles open-or-focus-web-app <window-pattern> <url>' 2
+	fi
+
+	pattern=$1
+	launch_command=$(shell_join dotfiles open-web-app "$pattern" "$2")
+	exec dotfiles open-or-focus "$pattern" "$launch_command"
+}
+
+launch_editor() {
+	local editor=${EDITOR:-nvim}
+
+	command_present "$editor" || editor=nvim
+
+	case "$editor" in
+	nvim | vim | nano | micro | hx | helix)
+		exec dotfiles open-tui "$editor" "$@"
+		;;
+	*)
+		if command_present uwsm-app; then
+			exec setsid uwsm-app -- "$editor" "$@"
+		fi
+		exec setsid "$editor" "$@"
+		;;
+	esac
+}
+
+launch_walker() {
+	if command_present elephant && ! pgrep -x elephant >/dev/null; then
+		run_background elephant
+	fi
+
+	if ! pgrep -f 'walker --gapplication-service' >/dev/null; then
+		run_background env GSK_RENDERER=cairo walker --gapplication-service
+	fi
+
+	exec walker --width 644 --maxheight 300 --minheight 300 "$@"
+}
+
+menu_input() {
+	local prompt=${1:-Input}
+
+	if (($# > 0)); then
+		shift
+	fi
+
+	dotfiles walker --dmenu --inputonly --width 295 --minheight 1 --maxheight 1 -p "$prompt..." "$@" 2>/dev/null
+}
+
+launch_floating_terminal() {
+	if (($# == 0)); then
+		set -- "$SHELL"
+	fi
+
+	if command_present alacritty; then
+		if command_present uwsm-app; then
+			exec setsid uwsm-app -- alacritty --class TUI.float -e "$@"
+		fi
+
+		exec setsid alacritty --class TUI.float -e "$@"
+	fi
+
+	if command_present uwsm-app && command_present xdg-terminal-exec; then
+		exec setsid uwsm-app -- xdg-terminal-exec --app-id=TUI.float -e "$@"
+	fi
+
+	exec dotfiles open-tui "$@"
+}
+
+launch_desktop_file() {
+	local file="$1"
+	local exec_line
+
+	exec_line=$(desktop_value "$file" Exec || true)
+	if [[ -z $exec_line ]]; then
+		notify "Cannot launch app" "Missing Exec in $file"
+		return 1
+	fi
+
+	setsid sh -lc "$exec_line" >/dev/null 2>&1 &
+}
+
+open_app() {
+	local target="${1:-}"
+	local file
+
+	[[ -n $target ]] || die 'Usage: dotfiles open-app <desktop-id|command> [args...]' 2
+	shift
+
+	if file=$(desktop_file_for_id "$target" 2>/dev/null); then
+		launch_desktop_file "$file"
+		return
+	fi
+
+	if command_present uwsm-app; then
+		exec setsid uwsm-app -- "$target" "$@"
+	fi
+
+	exec setsid "$target" "$@"
+}
+
+system_lock() {
+	if ! pidof hyprlock >/dev/null; then
+		(
+			hyprlock
+			dotfiles system wake
+		) &
+	fi
+
+	hyprctl switchxkblayout all 0 >/dev/null 2>&1 || true
+
+	if pgrep -x 1password >/dev/null && command_present 1password; then
+		1password --lock >/dev/null 2>&1 &
+	fi
+
+	pkill -f 'org[.]dotfiles[.]screensaver' 2>/dev/null || true
+
+	if [[ ${DOTFILES_LOCK_ONLY:-false} != true ]]; then
+		(
+			sleep 3
+			pidof hyprlock >/dev/null || exit 0
+			dotfiles brightness keyboard off 2>/dev/null || true
+			hyprctl dispatch dpms off >/dev/null 2>&1 || true
+		) &
+	fi
+}
+
+system_wake() {
+	hyprctl dispatch dpms on >/dev/null 2>&1 || true
+	dotfiles brightness keyboard restore 2>/dev/null || true
+}
+
+screensaver_run() {
+	local branding tte_pid
+
+	branding=${DOTFILES_SCREENSAVER_TEXT:-$HOME/.config/dotfiles/branding/screensaver.txt}
+
+	command_present tte || exit 1
+
+	screensaver_in_focus() {
+		hyprctl activewindow -j | jq -e '.class == "org.dotfiles.screensaver"' >/dev/null 2>&1
+	}
+
+	exit_screensaver() {
+		hyprctl keyword cursor:invisible false >/dev/null 2>&1 || true
+		pkill -x tte 2>/dev/null || true
+		pkill -f 'org[.]dotfiles[.]screensaver' 2>/dev/null || true
+		exit 0
+	}
+
+	trap exit_screensaver SIGINT SIGTERM SIGHUP SIGQUIT
+
+	printf '\033]11;rgb:00/00/00\007'
+	hyprctl keyword cursor:invisible true >/dev/null 2>&1 || true
+
+	while true; do
+		if [[ -f $branding ]]; then
+			tte -i "$branding" \
+				--frame-rate 120 --canvas-width 0 --canvas-height 0 --reuse-canvas --anchor-canvas c --anchor-text c \
+				--random-effect --no-eol --no-restore-cursor &
+		else
+			tte --frame-rate 120 --canvas-width 0 --canvas-height 0 --reuse-canvas --anchor-canvas c --anchor-text c \
+				--random-effect --no-eol --no-restore-cursor <<<"dotfiles" &
+		fi
+
+		tte_pid=$!
+		while kill -0 "$tte_pid" 2>/dev/null; do
+			if read -r -n1 -t 1 || ! screensaver_in_focus; then
+				exit_screensaver
+			fi
+		done
+		wait "$tte_pid" 2>/dev/null || true
+	done
+}
+
+launch_screensaver() {
+	local monitor terminal terminal_kind
+
+	if ! command_present tte; then
+		notify "Screensaver needs tte" "Install python-terminaltexteffects"
+		exit 1
+	fi
+
+	hyprctl clients -j | jq -e '.[] | select(.class == "org.dotfiles.screensaver")' >/dev/null 2>&1 && exit 0
+
+	if [[ -f $HOME/.local/state/dotfiles/toggles/screensaver-off && ${1:-} != force ]]; then
+		exit 0
+	fi
+
+	command_present walker && walker -q 2>/dev/null || true
+
+	terminal=$(xdg-terminal-exec --print-id 2>/dev/null || true)
+
+	if [[ -z $terminal ]]; then
+		for terminal_kind in alacritty ghostty foot kitty; do
+			if command_present "$terminal_kind"; then
+				terminal=$terminal_kind
+				break
+			fi
+		done
+	fi
+
+	case ${terminal,,} in
+	*alacritty*) terminal_kind=alacritty ;;
+	*ghostty*) terminal_kind=ghostty ;;
+	*foot*) terminal_kind=foot ;;
+	*kitty*) terminal_kind=kitty ;;
+	*)
+		notify "Screensaver unsupported terminal" "Use Alacritty, Foot, Ghostty, or Kitty"
+		exit 1
+		;;
+	esac
+
+	command_present "$terminal_kind" || {
+		notify "Screensaver terminal missing" "$terminal_kind is not installed"
+		exit 1
+	}
+
+	while IFS= read -r monitor; do
+		[[ -n $monitor ]] || continue
+		hyprctl dispatch focusmonitor "$monitor" >/dev/null 2>&1 || true
+
+		case $terminal_kind in
+		alacritty)
+			hyprctl dispatch exec -- alacritty --class=org.dotfiles.screensaver \
+				--config-file "$HOME/.config/dotfiles/screensaver/alacritty.toml" \
+				-e dotfiles screensaver run >/dev/null 2>&1
+			;;
+		ghostty)
+			hyprctl dispatch exec -- ghostty --class=org.dotfiles.screensaver \
+				--config-file="$HOME/.config/dotfiles/screensaver/ghostty" \
+				--font-size=18 \
+				-e dotfiles screensaver run >/dev/null 2>&1
+			;;
+		foot)
+			hyprctl dispatch exec -- foot --app-id=org.dotfiles.screensaver \
+				--config="$HOME/.config/dotfiles/screensaver/foot.ini" \
+				-e dotfiles screensaver run >/dev/null 2>&1
+			;;
+		kitty)
+			hyprctl dispatch exec -- kitty --class=org.dotfiles.screensaver \
+				--override font_size=18 \
+				--override background=#000000 \
+				--override foreground=#ffffff \
+				--override background_opacity=1.0 \
+				--override window_padding_width=0 \
+				-e dotfiles screensaver run >/dev/null 2>&1
+			;;
+		esac
+	done < <(hyprctl monitors -j | jq -r '.[] | .name')
+}
+
+screensaver_command() {
+	case "${1:-}" in
+	run)
+		shift
+		screensaver_run "$@"
+		;;
+	force)
+		shift
+		launch_screensaver force "$@"
+		;;
+	"" | launch) launch_screensaver "$@" ;;
+	*) die 'Usage: dotfiles screensaver [force|run]' 2 ;;
+	esac
+}
+
+capture_screenshot() {
+	local dir file geometry
+
+	dir=${DOTFILES_SCREENSHOT_DIR:-$HOME/Pictures/Screenshots}
+	mkdir -p "$dir"
+	file="$dir/$(date +'%Y-%m-%d_%H-%M-%S').png"
+
+	geometry=$(slurp 2>/dev/null || true)
+	[[ -n $geometry ]] || exit 0
+
+	grim -g "$geometry" "$file"
+	wl-copy <"$file" 2>/dev/null || true
+	notify "Screenshot copied & saved" "$file"
+}
+
+capture_screenrecording() {
+	local dir file
+
+	if pgrep -f '^gpu-screen-recorder' >/dev/null; then
+		pkill -INT -f '^gpu-screen-recorder' || true
+		pkill -RTMIN+8 waybar 2>/dev/null || true
+		notify "Screen recording stopped"
+		exit 0
+	fi
+
+	dir=${DOTFILES_SCREENRECORD_DIR:-$HOME/Videos/Screencasts}
+	mkdir -p "$dir"
+	file="$dir/$(date +'%Y-%m-%d_%H-%M-%S').mp4"
+
+	if command_present gpu-screen-recorder; then
+		setsid gpu-screen-recorder -w screen -f "$file" >/dev/null 2>&1 &
+		pkill -RTMIN+8 waybar 2>/dev/null || true
+		notify "Screen recording started" "$file"
+	else
+		notify "gpu-screen-recorder is not installed"
+	fi
+}
+
+swayosd_client() {
+	local monitor
+
+	monitor=$(focused_monitor || true)
+	if [[ -n $monitor ]]; then
+		exec swayosd-client --monitor "$monitor" "$@"
+	fi
+
+	exec swayosd-client "$@"
+}
+
+brightness_display() {
+	local step=${1:-+5%} device current target
+
+	device=$(ls -1 /sys/class/backlight 2>/dev/null | head -n1 || true)
+	for candidate in amdgpu_bl* intel_backlight acpi_video*; do
+		if [[ -e /sys/class/backlight/$candidate ]]; then
+			device=$candidate
+			break
+		fi
+	done
+
+	if [[ $step == off ]]; then
+		exec hyprctl dispatch dpms off
+	elif [[ $step == on ]]; then
+		exec hyprctl dispatch dpms on
+	fi
+
+	[[ -n ${device:-} ]] || exit 0
+
+	current=$(brightnessctl -d "$device" -m | cut -d',' -f4 | tr -d '%')
+
+	if [[ $step == +5% ]]; then
+		if ((current < 5)); then
+			target=$((current + 1))
+		else
+			target=$((current + 5))
+		fi
+		((target > 100)) && target=100
+		step="$target%"
+	elif [[ $step == 5%- ]]; then
+		if ((current <= 5)); then
+			target=$((current - 1))
+		else
+			target=$((current - 5))
+		fi
+		((target < 1)) && target=1
+		step="$target%"
+	fi
+
+	brightnessctl -d "$device" set "$step" >/dev/null
+	dotfiles osd --brightness "$(brightnessctl -d "$device" -m | cut -d',' -f4 | tr -d '%')"
+}
+
+brightness_keyboard() {
+	local direction=${1:-up} device max current step new percent
+
+	device=""
+	for candidate in /sys/class/leds/*kbd_backlight*; do
+		if [[ -e $candidate ]]; then
+			device=$(basename "$candidate")
+			break
+		fi
+	done
+
+	[[ -n $device ]] || exit 0
+
+	if [[ $direction == off ]]; then
+		brightnessctl -sd "$device" set 0 >/dev/null
+		exit 0
+	elif [[ $direction == restore ]]; then
+		brightnessctl -rd "$device" >/dev/null
+		exit 0
+	fi
+
+	max=$(brightnessctl -d "$device" max)
+	current=$(brightnessctl -d "$device" get)
+	step=$((max / 10))
+	((step < 1)) && step=1
+
+	case "$direction" in
+	cycle)
+		new=$((current + step))
+		((new > max)) && new=0
+		;;
+	up)
+		new=$((current + step))
+		((new > max)) && new=$max
+		;;
+	*)
+		new=$((current - step))
+		((new < 0)) && new=0
+		;;
+	esac
+
+	brightnessctl -d "$device" set "$new" >/dev/null
+	percent=$((new * 100 / max))
+	dotfiles osd --custom-message "Keyboard brightness: $percent%" --custom-icon keyboard-brightness-symbolic
+}
+
+audio_input_mute() {
+	wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle >/dev/null
+
+	if pactl get-source-mute @DEFAULT_SOURCE@ | rg -q 'yes'; then
+		dotfiles osd --custom-message "Microphone muted" --custom-icon microphone-sensitivity-muted-symbolic
+	else
+		dotfiles osd --custom-message "Microphone on" --custom-icon audio-input-microphone-symbolic
+	fi
+}
+
+audio_output_switch() {
+	local sinks count current index next next_name next_description next_volume next_muted icon_state next_wpid
+
+	sinks=$(pactl -f json list sinks | jq '[.[] | select((.ports | length == 0) or ([.ports[]? | .availability != "not available"] | any))]')
+	count=$(echo "$sinks" | jq '. | length')
+
+	if ((count == 0)); then
+		dotfiles osd --custom-message "No audio devices found"
+		exit 1
+	fi
+
+	current=$(pactl get-default-sink)
+	index=$(echo "$sinks" | jq -r --arg name "$current" 'map(.name) | index($name)')
+	if [[ $index != null ]]; then
+		next=$(((index + 1) % count))
+	else
+		next=0
+	fi
+
+	next_name=$(echo "$sinks" | jq -r ".[$next].name")
+	next_description=$(echo "$sinks" | jq -r ".[$next].description")
+	next_volume=$(echo "$sinks" | jq -r ".[$next].volume | to_entries[0].value.value_percent | sub(\"%\"; \"\")")
+	next_muted=$(echo "$sinks" | jq -r ".[$next].mute")
+
+	if [[ $next_muted == true ]] || ((next_volume == 0)); then
+		icon_state=muted
+	elif ((next_volume <= 33)); then
+		icon_state=low
+	elif ((next_volume <= 66)); then
+		icon_state=medium
+	else
+		icon_state=high
+	fi
+
+	if [[ $next_name != "$current" ]]; then
+		next_wpid=$(echo "$sinks" | jq -r ".[$next].properties.\"object.id\"")
+		wpctl set-default "$next_wpid"
+	fi
+
+	dotfiles osd --custom-message "$next_description" --custom-icon "sink-volume-$icon_state-symbolic"
+}
+
+toggle_touchpad() {
+	notify "Touchpad toggle is not configured for this hardware"
+}
+
+toggle_waybar() {
+	if pgrep -x waybar >/dev/null; then
+		pkill -x waybar
+	else
+		run_background waybar
+	fi
+}
+
+toggle_idle() {
+	if pgrep -x hypridle >/dev/null; then
+		pkill -x hypridle
+		notify "Idle lock disabled"
+	else
+		run_background hypridle
+		notify "Idle lock enabled"
+	fi
+}
+
+toggle_nightlight() {
+	if pgrep -x hyprsunset >/dev/null; then
+		pkill -x hyprsunset
+		notify "Night light disabled"
+	else
+		run_background hyprsunset
+		notify "Night light enabled"
+	fi
+}
+
+toggle_notifications() {
+	makoctl mode -t do-not-disturb
+	pkill -RTMIN+10 waybar 2>/dev/null || true
+}
+
+battery_status() {
+	local battery capacity status
+
+	battery=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -n1 || true)
+	if [[ -z $battery ]]; then
+		printf 'No battery\n'
+		return
+	fi
+
+	capacity=$(<"$battery/capacity")
+	status=$(<"$battery/status")
+	printf 'Battery %s%% (%s)\n' "$capacity" "$status"
+}
+
+launch_wifi() {
+	exec dotfiles open-or-focus-tui impala
+}
+
+launch_bluetooth() {
+	exec dotfiles open-or-focus-tui bluetui
+}
+
+launch_audio() {
+	exec dotfiles open-or-focus-tui wiremix
+}
+
+power_menu() {
+	local selection
+
+	selection=$(printf 'Lock\nSuspend\nLogout\nReboot\nShutdown\n' | dotfiles walker --dmenu --width 420 --minheight 1 --maxheight 300 -p Power 2>/dev/null || true)
+
+	case "$selection" in
+	Lock) dotfiles system lock ;;
+	Suspend) systemctl suspend ;;
+	Logout) hyprctl dispatch exit ;;
+	Reboot) systemctl reboot ;;
+	Shutdown) systemctl poweroff ;;
+	esac
+}
+
+show_keybindings() {
+	if ! command_present hyprctl || ! command_present jq; then
+		notify "Cannot show keybindings" "hyprctl and jq are required."
+		return 1
+	fi
+
+	local monitor_height menu_height
+	monitor_height=$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .height' 2>/dev/null | head -n1)
+	[[ $monitor_height =~ ^[0-9]+$ ]] || monitor_height=1200
+	menu_height=$((monitor_height * 40 / 100))
+
+	hyprctl -j binds |
+		jq -r '
+def mods:
+  if . == 0 then ""
+  elif . == 1 then "SHIFT"
+  elif . == 4 then "CTRL"
+  elif . == 5 then "SHIFT CTRL"
+  elif . == 8 then "ALT"
+  elif . == 9 then "SHIFT ALT"
+  elif . == 12 then "CTRL ALT"
+  elif . == 13 then "SHIFT CTRL ALT"
+  elif . == 64 then "CMD"
+  elif . == 65 then "CMD SHIFT"
+  elif . == 68 then "CMD CTRL"
+  elif . == 69 then "CMD SHIFT CTRL"
+  elif . == 72 then "CMD ALT"
+  elif . == 73 then "CMD SHIFT ALT"
+  elif . == 76 then "CMD CTRL ALT"
+  elif . == 77 then "CMD SHIFT CTRL ALT"
+  else tostring
+  end;
+def key_name:
+  if (.key // "") != "" then .key
+  elif (.keycode // 0) != 0 then "code:\(.keycode)"
+  elif (.mouse // 0) != 0 then "mouse:\(.mouse)"
+  else ""
+  end;
+.[] |
+  ((.modmask | mods) as $mods |
+  (key_name) as $key |
+  ([($mods | split(" ")[]?), $key] | map(select(. != "")) | join(" + ")) as $combo |
+  ((.description // "") as $description |
+  if $description != "" then $description else ([.dispatcher, .arg] | map(select(. != null and . != "")) | join(" ")) end) as $action |
+  select($combo != "" and $action != "") |
+  "\($combo) -> \($action)")' |
+		sort -u |
+		dotfiles walker --dmenu --width 800 --height "$menu_height" -p Keybindings >/dev/null 2>&1 || true
+}
+
+window_close_all() {
+	hyprctl clients -j | jq -r '.[].address' | while read -r address; do
+		[[ -n $address ]] && hyprctl dispatch closewindow "address:$address" >/dev/null
+	done
+}
+
+window_pop() {
+	hyprctl dispatch togglefloating active
+	hyprctl dispatch pin active
+	hyprctl dispatch tagwindow +pop
+}
+
+workspace_layout_toggle() {
+	local layout
+
+	layout=$(hyprctl getoption general:layout -j | jq -r '.str')
+	if [[ $layout == scrolling ]]; then
+		hyprctl keyword general:layout dwindle
+		notify "Layout: dwindle"
+	else
+		hyprctl keyword general:layout scrolling
+		notify "Layout: scrolling"
+	fi
+}
+
+monitor_scaling_cycle() {
+	notify "Monitor scaling" "Edit ~/.config/hypr/monitors.conf and run hyprctl reload"
+}
+
+update_available() {
+	local pacman_count=0 aur_count=0 total=0 helper tooltip
+
+	if command_present checkupdates; then
+		pacman_count=$(checkupdates 2>/dev/null | wc -l)
+		pacman_count=${pacman_count//[[:space:]]/}
+	fi
+
+	if command_present paru; then
+		helper=paru
+	elif command_present yay; then
+		helper=yay
+	else
+		helper=""
+	fi
+
+	if [[ -n $helper ]]; then
+		aur_count=$($helper -Qua 2>/dev/null | wc -l)
+		aur_count=${aur_count//[[:space:]]/}
+	fi
+
+	total=$((pacman_count + aur_count))
+	if ((total > 0)); then
+		tooltip="$total updates available ($pacman_count repo, $aur_count AUR)"
+		printf '{"text":"","tooltip":"%s","class":"available"}\n' "$tooltip"
+		return
+	fi
+
+	printf '{"text":"","tooltip":"","class":"none"}\n'
+}
+
+system_update() {
+	local status
+	local updater=()
+
+	if command_present paru; then
+		updater=(paru -Syu --noconfirm --skipreview --removemake)
+	elif command_present yay; then
+		updater=(yay -Syu --noconfirm --answerclean None --answerdiff None --answeredit None --answerupgrade None --removemake)
+	elif command_present pacman; then
+		updater=(sudo pacman -Syu --noconfirm)
+	else
+		printf 'No supported system updater found.\n' >&2
+		exit 1
+	fi
+
+	set +e
+	"${updater[@]}"
+	status=$?
+	set -e
+
+	pkill -RTMIN+7 waybar 2>/dev/null || true
+	return "$status"
+}
+
+system_timezone() {
+	local timezone
+
+	if ! command_present timedatectl; then
+		printf 'timedatectl is required to select a timezone.\n' >&2
+		return 1
+	fi
+
+	if command_present gum; then
+		timezone=$(timedatectl list-timezones | gum filter --height 20 --header "Set timezone") || return 1
+	elif command_present fzf; then
+		timezone=$(timedatectl list-timezones | fzf --height 20 --prompt="Set timezone> ") || return 1
+	else
+		printf 'gum or fzf is required to select a timezone.\n' >&2
+		return 1
+	fi
+
+	[[ -n $timezone ]] || return 0
+	sudo timedatectl set-timezone "$timezone"
+	printf 'Timezone is now set to %s\n' "$timezone"
+	restart_waybar
+}
+
+voxtype_status() {
+	if ! command_present voxtype; then
+		printf '{"text":""}\n'
+		return
+	fi
+
+	voxtype status --json 2>/dev/null || printf '{"text":""}\n'
+}
+
+voxtype_config() {
+	if command_present voxtype; then
+		exec dotfiles edit "${XDG_CONFIG_HOME:-$HOME/.config}/voxtype/config.toml"
+	fi
+}
+
+voxtype_model() {
+	if command_present voxtype; then
+		exec dotfiles open-floating-terminal voxtype model
+	fi
+}
+
+restart_walker() {
+	pkill -f 'walker --gapplication-service' 2>/dev/null || true
+	run_background env GSK_RENDERER=cairo walker --gapplication-service
+}
+
+restart_waybar() {
+	pkill -x waybar 2>/dev/null || true
+	run_background waybar
+}
+
+restart_service() {
+	local target="${1:-}"
+
+	[[ -n $target ]] || die 'Usage: dotfiles restart <service>' 2
+
+	case "$target" in
+	alacritty | foot | ghostty | kitty | terminal)
+		[[ -f ~/.config/alacritty/alacritty.toml ]] && touch ~/.config/alacritty/alacritty.toml
+		pkill -SIGUSR1 kitty 2>/dev/null || true
+		pkill -SIGUSR2 ghostty 2>/dev/null || true
+		;;
+	btop)
+		pkill -SIGUSR2 btop 2>/dev/null || true
+		;;
+	hypr | hyprctl | hyprland)
+		hyprctl reload
+		;;
+	hypridle)
+		pkill -x hypridle 2>/dev/null || true
+		run_background hypridle
+		;;
+	hyprsunset)
+		pkill -x hyprsunset 2>/dev/null || true
+		run_background hyprsunset
+		;;
+	mako)
+		makoctl reload
+		;;
+	swayosd)
+		pkill -x swayosd-server 2>/dev/null || true
+		run_background swayosd-server
+		;;
+	tmux)
+		if pgrep -x tmux >/dev/null; then
+			tmux source-file ~/.config/tmux/tmux.conf
+		fi
+		;;
+	walker)
+		restart_walker
+		;;
+	waybar)
+		restart_waybar
+		;;
+	*)
+		die "Unknown restart target: $target" 2
+		;;
+	esac
+}
+
+trim_whitespace() {
+	local value="$1"
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+	printf '%s' "$value"
+}
+
+toml_string_value() {
+	local file="$1" section="$2" key="$3"
+	local line in_section=0
+
+	[[ -f $file ]] || return 1
+	[[ -z $section ]] && in_section=1
+
+	while IFS= read -r line || [[ -n $line ]]; do
+		if [[ -n $section ]]; then
+			if [[ $line =~ ^[[:space:]]*\[$section\][[:space:]]*($|#) ]]; then
+				in_section=1
+				continue
+			fi
+
+			if [[ $line =~ ^[[:space:]]*\[[^]]+\] ]]; then
+				in_section=0
+				continue
+			fi
+		fi
+
+		if ((in_section)) && [[ $line =~ ^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]*)\" ]]; then
+			printf '%s\n' "${BASH_REMATCH[1]}"
+			return 0
+		fi
+	done <"$file"
+
+	return 1
+}
+
+ratune_server_identity() {
+	local config_dir config_file cache_file url username
+
+	config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ratune"
+	config_file="$config_dir/config.toml"
+	cache_file="$config_dir/server.local.toml"
+	url="${TERMUSIC_SUBSONIC_URL:-${SUBSONIC_URL:-}}"
+	username="${TERMUSIC_SUBSONIC_USER:-${SUBSONIC_USER:-}}"
+
+	if [[ -z $url ]]; then
+		url=$(toml_string_value "$config_file" server url || true)
+	fi
+	if [[ -z $username ]]; then
+		username=$(toml_string_value "$config_file" server username || true)
+	fi
+	if [[ -z $url ]]; then
+		url=$(toml_string_value "$cache_file" "" url || true)
+	fi
+	if [[ -z $username ]]; then
+		username=$(toml_string_value "$cache_file" "" username || true)
+	fi
+
+	url=$(trim_whitespace "$url")
+	username=$(trim_whitespace "$username")
+	while [[ $url == */ ]]; do
+		url=${url%/}
+	done
+
+	if [[ -z $url || -z $username ]]; then
+		die "Ratune server identity is missing. Set [server].url and [server].username in $config_file, create $cache_file, or export SUBSONIC_URL and SUBSONIC_USER." 2
+	fi
+
+	printf '%s\n%s\n' "$url" "$username"
+}
+
+reset_ratune() {
+	local url username label description persistent_keyring keyring key_id found=0
+	local -a identity keyrings
+
+	if [[ $# -ne 0 ]]; then
+		die 'Usage: dotfiles reset ratune' 2
+	fi
+	if [[ $(uname -s) != Linux ]]; then
+		die 'dotfiles reset ratune only supports Linux keyutils.' 2
+	fi
+	command_present keyctl || die 'keyctl is required to reset Ratune keyutils credentials. Install the keyutils package.' 127
+
+	mapfile -t identity < <(ratune_server_identity)
+	url=${identity[0]}
+	username=${identity[1]}
+	label="$url|$username"
+	description="keyring:${label}@ratune"
+	keyrings=(@s)
+
+	if persistent_keyring=$(keyctl get_persistent @s 2>/dev/null); then
+		keyrings+=("$persistent_keyring")
+	fi
+
+	for keyring in "${keyrings[@]}"; do
+		if key_id=$(keyctl search "$keyring" user "$description" 2>/dev/null); then
+			keyctl invalidate "$key_id"
+			found=1
+		fi
+	done
+
+	if ((found)); then
+		printf 'Reset Ratune Subsonic password key for %s (%s).\n' "$username" "$url"
+	else
+		printf 'No Ratune keyutils password key found for %s (%s).\n' "$username" "$url"
+	fi
+
+	printf 'Run ratune again in a TTY and enter the correct Subsonic password when prompted.\n'
+}
+
+menu() {
+	local prompt="$1"
+	local options="$2"
+	local width="${3:-$MENU_WIDTH}"
+	local height="${4:-$MENU_HEIGHT}"
+
+	printf '%b\n' "$options" |
+		dotfiles walker --dmenu --width "$width" --minheight 1 --maxheight "$height" -p "$prompt..." 2>/dev/null || true
+}
+
+menu_lines() {
+	local prompt="$1"
+	local width="${2:-$MENU_WIDTH}"
+	local height="${3:-$MENU_HEIGHT}"
+	shift 3 || true
+
+	printf '%s\n' "$@" |
+		dotfiles walker --dmenu --width "$width" --minheight 1 --maxheight "$height" -p "$prompt..." 2>/dev/null || true
+}
+
+input() {
+	local prompt="$1"
+	dotfiles input "$prompt" --width "$MENU_WIDTH" 2>/dev/null || true
+}
+
+open_url() {
+	local name="$1"
+	local url="$2"
+	dotfiles open-web-app "$name" "$url"
+}
+
+open_config() {
+	local file="$1"
+	dotfiles edit "$file"
+}
+
+run_terminal_script() {
+	dotfiles open-floating-terminal bash -lc "$1"
+}
+
+unavailable() {
+	notify "Not implemented" "$1 is tracked in todo.txt for triage."
+}
+
+install_packages() {
+	local label="$1"
+	shift
+	local command_line
+	command_line=$(shell_join sudo pacman -S --needed "$@")
+	run_terminal_script "printf 'Installing %s...\n' $(printf '%q' "$label"); $command_line; printf '\nPress enter to close...'; read -r _"
+}
+
+aur_helper() {
+	if command_present paru; then
+		printf '%s\n' paru
+	elif command_present yay; then
+		printf '%s\n' yay
+	else
+		return 1
+	fi
+}
+
+install_aur_packages() {
+	local helper label command_line
+	label="$1"
+	shift
+	helper=$(aur_helper || true)
+	if [[ -z $helper ]]; then
+		notify "Cannot install AUR package" "paru or yay is required."
+		return 1
+	fi
+
+	command_line=$(shell_join "$helper" -S --needed "$@")
+	run_terminal_script "printf 'Installing %s...\n' $(printf '%q' "$label"); $command_line; printf '\nPress enter to close...'; read -r _"
+}
+
+remove_packages_by_name() {
+	local command_line
+	command_line=$(shell_join sudo pacman -Rns "$@")
+	run_terminal_script "$command_line; printf '\nPress enter to close...'; read -r _"
+}
+
+desktop_prefix() {
+	case "$1" in
+	tui) printf '%s\n' dotfiles-tui ;;
+	webapp) printf '%s\n' dotfiles-webapp ;;
+	*) return 1 ;;
+	esac
+}
+
+desktop_options() {
+	local kind="$1"
+	local prefix file name options=""
+
+	prefix=$(desktop_prefix "$kind")
+	shopt -s nullglob
+	for file in "$APP_DIR"/"$prefix"-*.desktop; do
+		name=$(desktop_value "$file" Name || true)
+		[[ -n $name ]] && options="${options:+$options\n}$name"
+	done
+	shopt -u nullglob
+
+	printf '%b' "$options"
+}
+
+desktop_file_for_selection() {
+	local kind="$1"
+	local selection="$2"
+	local prefix file name
+
+	prefix=$(desktop_prefix "$kind")
+	shopt -s nullglob
+	for file in "$APP_DIR"/"$prefix"-*.desktop; do
+		name=$(desktop_value "$file" Name || true)
+		if [[ $name == "$selection" ]]; then
+			printf '%s\n' "$file"
+			shopt -u nullglob
+			return 0
+		fi
+	done
+	shopt -u nullglob
+
+	return 1
+}
+
+select_desktop_file() {
+	local kind="$1"
+	local prompt="$2"
+	local options selection
+
+	options=$(desktop_options "$kind")
+	if [[ -z $options ]]; then
+		notify "No ${kind} apps" "Add one from the dotfiles menu."
+		return 1
+	fi
+
+	selection=$(menu "$prompt" "$options" 520)
+	[[ -n $selection ]] || return 1
+
+	desktop_file_for_selection "$kind" "$selection"
+}
+
+write_desktop_file() {
+	local file="$1"
+	local name="$2"
+	local comment="$3"
+	local exec_line="$4"
+	local icon="$5"
+	local category="$6"
+
+	mkdir -p "$APP_DIR"
+	cat >"$file" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=$name
+Comment=$comment
+Exec=$exec_line
+Icon=$icon
+Terminal=false
+Categories=$category
+StartupNotify=false
+EOF
+}
+
+create_tui_app_values() {
+	local name="$1"
+	local command="$2"
+	local icon="${3:-utilities-terminal}"
+	local slug file exec_line
+
+	slug=$(slugify "$name")
+	if [[ -z $slug ]]; then
+		notify "Invalid app name" "$name"
+		return 1
+	fi
+
+	file="$APP_DIR/dotfiles-tui-$slug.desktop"
+	exec_line=$(shell_join dotfiles open-tui bash -lc "$command")
+	write_desktop_file "$file" "$name" "Terminal UI app managed by dotfiles" "$exec_line" "$icon" "Utility;"
+	notify "TUI app added" "$name"
+	printf '%s\n' "$file"
+}
+
+create_web_app_values() {
+	local name="$1"
+	local url="$2"
+	local icon="${3:-web-browser}"
+	local slug file exec_line
+
+	if [[ ! $url =~ ^[a-zA-Z][a-zA-Z0-9+.-]*: ]]; then
+		url="https://$url"
+	fi
+
+	slug=$(slugify "$name")
+	if [[ -z $slug ]]; then
+		notify "Invalid app name" "$name"
+		return 1
+	fi
+
+	file="$APP_DIR/dotfiles-webapp-$slug.desktop"
+	exec_line=$(shell_join dotfiles open-or-focus-web-app "$name" "$url")
+	write_desktop_file "$file" "$name" "Web app managed by dotfiles" "$exec_line" "$icon" "Network;WebBrowser;"
+	notify "Web app added" "$name"
+	printf '%s\n' "$file"
+}
+
+create_tui_app() {
+	local name command icon
+
+	if (($# >= 2)); then
+		create_tui_app_values "$1" "$2" "${3:-utilities-terminal}"
+		return
+	fi
+
+	name=$(input "TUI app name")
+	[[ -n $name ]] || return 0
+
+	command=$(input "Launch command")
+	[[ -n $command ]] || return 0
+
+	icon=$(input "Icon name")
+	[[ -n $icon ]] || icon="utilities-terminal"
+
+	create_tui_app_values "$name" "$command" "$icon" >/dev/null
+}
+
+create_web_app() {
+	local name url icon
+
+	if (($# >= 2)); then
+		create_web_app_values "$1" "$2" "${3:-web-browser}"
+		return
+	fi
+
+	name=$(input "Web app name")
+	[[ -n $name ]] || return 0
+
+	url=$(input "Web app URL")
+	[[ -n $url ]] || return 0
+
+	icon=$(input "Icon name")
+	[[ -n $icon ]] || icon="web-browser"
+
+	create_web_app_values "$name" "$url" "$icon" >/dev/null
+}
+
+remove_desktop_app() {
+	local kind="$1"
+	local file name confirmation
+
+	file=$(select_desktop_file "$kind" "Remove") || return 0
+	name=$(desktop_value "$file" Name || basename "$file")
+	confirmation=$(menu_lines "Remove $name" "$MENU_WIDTH" 180 "Remove" "Cancel")
+
+	if [[ $confirmation == "Remove" ]]; then
+		rm -f "$file"
+		notify "Removed" "$name"
+	fi
+}
+
+show_tui_menu() {
+	local apps selection file
+
+	apps=$(desktop_options tui)
+	selection=$(menu "TUI Apps" "${apps:+$apps\n}Add TUI App\nRemove TUI App" 520)
+
+	case "$selection" in
+	"Add TUI App") create_tui_app ;;
+	"Remove TUI App") remove_desktop_app tui ;;
+	"") show_main_menu ;;
+	*)
+		file=$(desktop_file_for_selection tui "$selection" || true)
+		[[ -n $file ]] && launch_desktop_file "$file"
+		;;
+	esac
+}
+
+show_webapp_menu() {
+	local apps selection file
+
+	apps=$(desktop_options webapp)
+	selection=$(menu "Web Apps" "${apps:+$apps\n}Add Web App\nRemove Web App" 520)
+
+	case "$selection" in
+	"Add Web App") create_web_app ;;
+	"Remove Web App") remove_desktop_app webapp ;;
+	"") show_main_menu ;;
+	*)
+		file=$(desktop_file_for_selection webapp "$selection" || true)
+		[[ -n $file ]] && launch_desktop_file "$file"
+		;;
+	esac
+}
+
+install_pacman_package() {
+	if ! command_present pacman || ! command_present fzf; then
+		notify "Cannot install package" "pacman and fzf are required."
+		return 1
+	fi
+
+	dotfiles open-floating-terminal bash -lc 'set -euo pipefail; packages=$(pacman -Slq | fzf --multi --prompt="Pacman> " || true); if [[ -n ${packages:-} ]]; then sudo pacman -S --needed $packages; fi; printf "\nPress enter to close..."; read -r _'
+}
+
+install_aur_package() {
+	local helper
+
+	helper=$(aur_helper || true)
+	if [[ -z $helper ]] || ! command_present fzf; then
+		notify "Cannot install AUR package" "yay or paru and fzf are required."
+		return 1
+	fi
+
+	dotfiles open-floating-terminal bash -lc "set -euo pipefail; packages=\$($helper -Slqa | fzf --multi --prompt='AUR> ' || true); if [[ -n \${packages:-} ]]; then $helper -S --needed \$packages; fi; printf '\nPress enter to close...'; read -r _"
+}
+
+remove_package() {
+	if ! command_present pacman || ! command_present fzf; then
+		notify "Cannot remove package" "pacman and fzf are required."
+		return 1
+	fi
+
+	dotfiles open-floating-terminal bash -lc 'set -euo pipefail; packages=$(pacman -Qqe | fzf --multi --prompt="Remove> " || true); if [[ -n ${packages:-} ]]; then sudo pacman -Rns $packages; fi; printf "\nPress enter to close..."; read -r _'
+}
+
+show_apps_menu() {
+	case "$(menu "Apps" "󰀻  Launcher\n  TUI Apps\n  Web Apps")" in
+	*Launcher*) dotfiles walker ;;
+	*TUI*) show_tui_menu ;;
+	*Web*) show_webapp_menu ;;
+	*) show_main_menu ;;
+	esac
+}
+
+show_learn_menu() {
+	case "$(menu "Learn" "  Keybindings\n  Dotfiles\n  Hyprland\n󰣇  Arch\n  Neovim\n󱆃  Bash")" in
+	*Keybindings*) show_keybindings ;;
+	*Dotfiles*) open_url Dotfiles "https://github.com/elvisgastelum/dotfiles" ;;
+	*Hyprland*) open_url Hyprland "https://wiki.hypr.land/" ;;
+	*Arch*) open_url Arch "https://wiki.archlinux.org/title/Main_page" ;;
+	*Neovim*) open_url Neovim "https://www.lazyvim.org/keymaps" ;;
+	*Bash*) open_url Bash "https://devhints.io/bash" ;;
+	*) show_main_menu ;;
+	esac
+}
+
+set_reminder() {
+	local minutes message pid file
+	minutes=$(input "Remind in minutes")
+	if [[ ! $minutes =~ ^[0-9]+$ ]] || ((minutes <= 0)); then
+		[[ -n $minutes ]] && notify "Invalid reminder" "Enter the number of minutes."
+		return 0
+	fi
+
+	message=$(input "Reminder message")
+	[[ -n $message ]] || message="Reminder"
+	mkdir -p "$STATE_DIR/reminders"
+	(
+		sleep "${minutes}m"
+		notify-send "󰔛  Reminder" "$message" 2>/dev/null || true
+		rm -f "$STATE_DIR/reminders/$BASHPID"
+	) &
+	pid=$!
+	file="$STATE_DIR/reminders/$pid"
+	printf '%s\t%s\t%s\n' "$pid" "$minutes" "$message" >"$file"
+	notify "Reminder set" "$message in $minutes minutes"
+}
+
+show_reminders() {
+	local options="" file pid minutes message
+	mkdir -p "$STATE_DIR/reminders"
+	shopt -s nullglob
+	for file in "$STATE_DIR"/reminders/*; do
+		IFS=$'\t' read -r pid minutes message <"$file" || true
+		if [[ -n ${pid:-} ]] && kill -0 "$pid" 2>/dev/null; then
+			options="${options:+$options\n}󰔛  ${message:-Reminder} (${minutes:-?}m)"
+		else
+			rm -f "$file"
+		fi
+	done
+	shopt -u nullglob
+	[[ -n $options ]] || options="No reminders"
+	menu "Reminders" "$options" 520 320 >/dev/null
+}
+
+clear_reminders() {
+	local file pid
+	mkdir -p "$STATE_DIR/reminders"
+	shopt -s nullglob
+	for file in "$STATE_DIR"/reminders/*; do
+		IFS=$'\t' read -r pid _ <"$file" || true
+		[[ -n ${pid:-} ]] && kill "$pid" 2>/dev/null || true
+		rm -f "$file"
+	done
+	shopt -u nullglob
+	notify "Reminders cleared"
+}
+
+show_reminder_menu() {
+	case "$(menu "Reminder" "󰔛  Set one\n󰔛  Show all\n󰔛  Clear all")" in
+	*Set*) set_reminder ;;
+	*"Show all"*) show_reminders ;;
+	*"Clear all"*) clear_reminders ;;
+	*) show_trigger_menu ;;
+	esac
+}
+
+show_screenrecord_menu() {
+	case "$(menu "Screenrecord" "  With no audio\n  With desktop audio\n  With desktop + microphone audio\n  With desktop + microphone audio + webcam")" in
+	*"With no audio"*) dotfiles capture screenrecording ;;
+	*audio*) dotfiles capture screenrecording ;;
+	*) show_capture_menu ;;
+	esac
+}
+
+show_capture_menu() {
+	case "$(menu "Capture" "  Screenshot\n  Screenrecord\n󰴑  Text Extraction [todo]\n󰃉  Color")" in
+	*Screenshot*) dotfiles capture screenshot ;;
+	*Screenrecord*) show_screenrecord_menu ;;
+	*Text*) unavailable "Text extraction" ;;
+	*Color*) pkill hyprpicker 2>/dev/null || hyprpicker -a ;;
+	*) show_trigger_menu ;;
+	esac
+}
+
+show_share_menu() {
+	case "$(menu "Share" "  Clipboard [todo]\n  File [todo]\n  Folder [todo]")" in
+	*Clipboard*) unavailable "Clipboard sharing" ;;
+	*File*) unavailable "File sharing" ;;
+	*Folder*) unavailable "Folder sharing" ;;
+	*) show_trigger_menu ;;
+	esac
+}
+
+show_toggle_menu() {
+	case "$(menu "Toggle" "󱄄  Screensaver\n󰔎  Nightlight\n󱫖  Idle Lock\n󰂛  Notifications\n󰍜  Top Bar\n󱂬  Workspace Layout\n  Window Gaps [todo]\n  1-Window Ratio [todo]\n󰍹  Monitor Scaling\n  Direct Boot [todo]\n󰟵  Passwordless Sudo [todo]")" in
+	*Screensaver*) dotfiles screensaver force ;;
+	*Nightlight*) dotfiles toggle nightlight ;;
+	*Idle*) dotfiles toggle idle ;;
+	*Notifications*) dotfiles toggle notifications ;;
+	*Bar*) dotfiles toggle waybar ;;
+	*Layout*) dotfiles workspace layout-toggle ;;
+	*Gaps*) unavailable "Window gaps toggle" ;;
+	*Ratio*) unavailable "1-window ratio toggle" ;;
+	*Scaling*) dotfiles workspace monitor-scaling-cycle ;;
+	*"Direct Boot"*) unavailable "Direct boot" ;;
+	*"Passwordless Sudo"*) unavailable "Passwordless sudo" ;;
+	*) show_trigger_menu ;;
+	esac
+}
+
+show_hardware_menu() {
+	case "$(menu "Hardware" "󰛧  Laptop Display [todo]\n󰍹  Mirror Display [todo]\n󰟸  Touchpad\n󰆽  Touchscreen [todo]")" in
+	*Laptop*) unavailable "Laptop display toggle" ;;
+	*Mirror*) unavailable "Mirror display toggle" ;;
+	*Touchpad*) dotfiles toggle touchpad ;;
+	*Touchscreen*) unavailable "Touchscreen toggle" ;;
+	*) show_trigger_menu ;;
+	esac
+}
+
+show_trigger_menu() {
+	case "$(menu "Trigger" "󰔛  Reminder\n  Capture\n󰧸  Transcode [todo]\n  Share\n󰔎  Toggle\n  Hardware")" in
+	*Reminder*) show_reminder_menu ;;
+	*Capture*) show_capture_menu ;;
+	*Transcode*) unavailable "Transcode" ;;
+	*Share*) show_share_menu ;;
+	*Toggle*) show_toggle_menu ;;
+	*Hardware*) show_hardware_menu ;;
+	*) show_main_menu ;;
+	esac
+}
+
+show_install_browser_menu() {
+	case "$(menu "Install" "  Chrome\n  Edge\n  Brave\n  Brave Origin\n  Firefox\n󰖟  Zen")" in
+	*Chrome*) install_aur_packages Chrome google-chrome ;;
+	*Edge*) install_aur_packages Edge microsoft-edge-stable-bin ;;
+	*"Brave Origin"*) install_aur_packages "Brave Origin" brave-origin-beta-bin ;;
+	*Brave*) install_aur_packages Brave brave-bin ;;
+	*Firefox*) install_packages Firefox firefox ;;
+	*Zen*) install_aur_packages Zen zen-browser-bin ;;
+	*) show_install_menu ;;
+	esac
+}
+
+show_install_service_menu() {
+	case "$(menu "Install" "  Dropbox\n  Tailscale\n󱇱  NordVPN [AUR]\n󰏖  ONCE [todo]\n󰟵  Bitwarden\n  Chromium Account")" in
+	*Dropbox*) install_aur_packages Dropbox dropbox ;;
+	*Tailscale*) install_packages Tailscale tailscale ;;
+	*NordVPN*) install_aur_packages NordVPN nordvpn-bin ;;
+	*ONCE*) unavailable ONCE ;;
+	*Bitwarden*) install_packages Bitwarden bitwarden bitwarden-cli ;;
+	*Chromium*) install_packages Chromium chromium ;;
+	*) show_install_menu ;;
+	esac
+}
+
+show_install_terminal_menu() {
+	case "$(menu "Install" "  Alacritty\n  Foot\n  Ghostty\n  Kitty")" in
+	*Alacritty*) install_packages Alacritty alacritty ;;
+	*Foot*) install_packages Foot foot ;;
+	*Ghostty*) install_packages Ghostty ghostty ;;
+	*Kitty*) install_packages Kitty kitty ;;
+	*) show_install_menu ;;
+	esac
+}
+
+show_install_menu() {
+	case "$(menu "Install" "󰣇  Package\n󰣇  AUR\n  Web App\n  TUI\n  Service\n  Style [todo]\n󰵮  Development [todo]\n  Editor [todo]\n  Terminal\n  Browser\n󱚤  AI [todo]\n  Gaming [todo]\n󰍲  Windows [todo]")" in
+	*Package*) install_pacman_package ;;
+	*AUR*) install_aur_package ;;
+	*Web*) create_web_app ;;
+	*TUI*) create_tui_app ;;
+	*Service*) show_install_service_menu ;;
+	*Style*) unavailable "Style install" ;;
+	*Development*) unavailable "Development install presets" ;;
+	*Editor*) unavailable "Editor install presets" ;;
+	*Terminal*) show_install_terminal_menu ;;
+	*Browser*) show_install_browser_menu ;;
+	*AI*) unavailable "AI install presets" ;;
+	*Gaming*) unavailable "Gaming install presets" ;;
+	*Windows*) unavailable "Windows VM install" ;;
+	*) show_main_menu ;;
+	esac
+}
+
+show_remove_menu() {
+	case "$(menu "Remove" "󰣇  Package\n  Web App\n  TUI\n󰵮  Development [todo]\n󰸌  Theme [todo]\n  Browser [todo]\n  Dictation [todo]\n  Gaming [todo]\n󰍲  Windows [todo]\n󰏓  Preinstalls [todo]\n  Security [todo]")" in
+	*Package*) remove_package ;;
+	*Web*) remove_desktop_app webapp ;;
+	*TUI*) remove_desktop_app tui ;;
+	*Development*) unavailable "Development removal presets" ;;
+	*Theme*) unavailable "Theme removal" ;;
+	*Browser*) unavailable "Browser removal presets" ;;
+	*Dictation*) unavailable "Dictation removal" ;;
+	*Gaming*) unavailable "Gaming removal" ;;
+	*Windows*) unavailable "Windows VM removal" ;;
+	*Preinstalls*) unavailable "Preinstall removal" ;;
+	*Security*) unavailable "Security removal" ;;
+	*) show_main_menu ;;
+	esac
+}
+
+restart_process() {
+	case "$1" in
+	Hyprland) restart_service hyprland ;;
+	Hypridle) restart_service hypridle ;;
+	Hyprsunset) restart_service hyprsunset ;;
+	Mako) restart_service mako ;;
+	Walker) restart_service walker ;;
+	Waybar) restart_service waybar ;;
+	esac
+}
+
+show_restart_menu() {
+	local selection
+	selection=$(menu "Restart" "  Hyprland\n  Hypridle\n  Hyprsunset\n󰎟  Mako\n󰌧  Walker\n󰍜  Waybar")
+	case "$selection" in
+	*Hyprland*) restart_process Hyprland ;;
+	*Hypridle*) restart_process Hypridle ;;
+	*Hyprsunset*) restart_process Hyprsunset ;;
+	*Mako*) restart_process Mako ;;
+	*Walker*) restart_process Walker ;;
+	*Waybar*) restart_process Waybar ;;
+	esac
+}
+
+show_update_menu() {
+	case "$(menu "Update" "  System\n󰔫  Channel [todo]\n  Config\n󰸌  Extra Themes [todo]\n  Process\n󰇅  Hardware [todo]\n  Firmware\n  Password\n  Timezone\n  Time")" in
+	*System*) dotfiles open-floating-terminal dotfiles system update ;;
+	*Channel*) unavailable "Update channel" ;;
+	*Config*) open_config "$HOME/.config/waybar/config.jsonc" ;;
+	*Themes*) unavailable "Extra theme update" ;;
+	*Process*) show_restart_menu ;;
+	*Hardware*) unavailable "Hardware restart presets" ;;
+	*Firmware*) run_terminal_script "fwupdmgr refresh --force && fwupdmgr update --assume-yes; printf '\nPress enter to close...'; read -r _" ;;
+	*Password*) dotfiles open-floating-terminal passwd ;;
+	*Timezone*) dotfiles open-floating-terminal dotfiles system timezone ;;
+	*Time*) run_terminal_script "sudo timedatectl set-ntp true; timedatectl; printf '\nPress enter to close...'; read -r _" ;;
+	*) show_main_menu ;;
+	esac
+}
+
+show_system_menu() {
+	case "$(menu "System" "󱄄  Screensaver\n  Lock\n󰒲  Suspend\n󰤁  Hibernate\n󰍃  Logout\n󰜉  Restart\n󰐥  Shutdown")" in
+	*Screensaver*) dotfiles screensaver force ;;
+	*Lock*) dotfiles system lock ;;
+	*Suspend*) systemctl suspend ;;
+	*Hibernate*) systemctl hibernate ;;
+	*Logout*) hyprctl dispatch exit ;;
+	*Restart*) systemctl reboot ;;
+	*Shutdown*) systemctl poweroff ;;
+	*) show_main_menu ;;
+	esac
+}
+
+show_style_menu() {
+	case "$(menu "Style" "󰸌  Theme\n󰟵  Unlock\n  Font [todo]\n  Background [todo]\n  Hyprland\n󱄄  Screensaver\n  About")" in
+	*Theme*) open_config "$HOME/.config/dotfiles/theme/waybar.css" ;;
+	*Unlock*) open_config "$HOME/.config/hypr/hyprlock.conf" ;;
+	*Font*) unavailable "Font selector" ;;
+	*Background*) unavailable "Background selector" ;;
+	*Hyprland*) open_config "$HOME/.config/hypr/looknfeel.conf" ;;
+	*Screensaver*) open_config "$HOME/.config/dotfiles/branding/screensaver.txt" ;;
+	*About*) show_about ;;
+	*) show_main_menu ;;
+	esac
+}
+
+current_defaults_text() {
+	local browser terminal editor
+
+	browser=${DOTFILES_BROWSER_DESKTOP:-}
+	if [[ -z $browser ]] && command_present xdg-settings; then
+		browser=$(xdg-settings get default-web-browser 2>/dev/null || true)
+	fi
+	terminal=$(sed -n '/^[^#[:space:]]/ {p; q}' "${XDG_CONFIG_HOME:-$HOME/.config}/xdg-terminals.list" 2>/dev/null || true)
+	editor=${EDITOR:-nvim}
+
+	printf 'Browser: %s\nTerminal: %s\nEditor: %s\n' "${browser:-unknown}" "${terminal:-unknown}" "$editor"
+}
+
+show_defaults_menu() {
+	local selection value defaults
+
+	selection=$(menu "Defaults" "  Browser\n  Terminal\n  Editor\n  Show Current")
+	case "$selection" in
+	*Browser*)
+		value=$(input "Browser desktop ID or command")
+		[[ -n $value ]] && set_default browser "$value"
+		;;
+	*Terminal*)
+		value=$(input "Terminal desktop ID or command")
+		[[ -n $value ]] && set_default terminal "$value"
+		;;
+	*Editor*)
+		value=$(input "Editor command")
+		[[ -n $value ]] && set_default editor "$value"
+		;;
+	*Current*)
+		defaults=$(current_defaults_text)
+		menu "Defaults" "$defaults" 520 240 >/dev/null
+		;;
+	*) show_setup_menu ;;
+	esac
+}
+
+show_setup_menu() {
+	case "$(menu "Setup" "  Audio\n  Wifi\n󰂯  Bluetooth\n󱐋  Power Profile [todo]\n  System Sleep [todo]\n󰍹  Monitors\n  Keybindings\n  Input\n  Defaults\n󰱔  DNS [todo]\n  Security [todo]\n  Config")" in
+	*Audio*) dotfiles control audio ;;
+	*Wifi*) dotfiles control wifi ;;
+	*Bluetooth*) dotfiles control bluetooth ;;
+	*Power*) unavailable "Power profile selector" ;;
+	*System*) unavailable "System sleep setup" ;;
+	*Monitors*) open_config "$HOME/.config/hypr/monitors.conf" ;;
+	*Keybindings*) open_config "$HOME/.config/hypr/bindings.conf" ;;
+	*Input*) open_config "$HOME/.config/hypr/input.conf" ;;
+	*Defaults*) show_defaults_menu ;;
+	*DNS*) unavailable "DNS setup" ;;
+	*Security*) unavailable "Security setup" ;;
+	*Config*) open_config "$HOME/.config/hypr/hyprland.conf" ;;
+	*) show_main_menu ;;
+	esac
+}
+
+show_about() {
+	dotfiles open-floating-terminal bash -lc 'fastfetch 2>/dev/null || uname -a; printf "\nPress enter to close..."; read -r _'
+}
+
+show_main_menu() {
+	case "$(menu "Go" "󰀻  Apps\n󰧑  Learn\n󱓞  Trigger\n  Style\n  Setup\n󰉉  Install\n󰭌  Remove\n  Update\n  About\n  System")" in
+	*Apps*) show_apps_menu ;;
+	*Learn*) show_learn_menu ;;
+	*Trigger*) show_trigger_menu ;;
+	*Style*) show_style_menu ;;
+	*Setup*) show_setup_menu ;;
+	*Install*) show_install_menu ;;
+	*Remove*) show_remove_menu ;;
+	*Update*) show_update_menu ;;
+	*About*) show_about ;;
+	*System*) show_system_menu ;;
+	esac
+}
+
+toggle_existing_menu() {
+	if pgrep -f 'walker.*--dmenu' >/dev/null; then
+		walker --close >/dev/null 2>&1 || true
+		exit 0
+	fi
+}
+
+menu_command() {
+	if [[ $# -eq 0 ]]; then
+		toggle_existing_menu
+	fi
+
+	case "${1:-}" in
+	apps) show_apps_menu ;;
+	keybindings) show_keybindings ;;
+	learn) show_learn_menu ;;
+	trigger) show_trigger_menu ;;
+	style) show_style_menu ;;
+	setup) show_setup_menu ;;
+	tui | tuis) show_tui_menu ;;
+	web | webapp | webapps) show_webapp_menu ;;
+	install) show_install_menu ;;
+	remove) show_remove_menu ;;
+	update) show_update_menu ;;
+	about) show_about ;;
+	system | power) show_system_menu ;;
+	defaults) show_defaults_menu ;;
+	"") show_main_menu ;;
+	*) show_main_menu ;;
+	esac
+}
+
+capture_command() {
+	case "${1:-}" in
+	screenshot) capture_screenshot ;;
+	screenrecording | screenrecord) capture_screenrecording ;;
+	*) die 'Usage: dotfiles capture screenshot|screenrecording' 2 ;;
+	esac
+}
+
+toggle_command() {
+	case "${1:-}" in
+	waybar | topbar) toggle_waybar ;;
+	idle | idle-lock) toggle_idle ;;
+	nightlight | night-light) toggle_nightlight ;;
+	notifications | notification-silencing) toggle_notifications ;;
+	touchpad)
+		shift
+		toggle_touchpad "$@"
+		;;
+	*) die 'Usage: dotfiles toggle waybar|idle|nightlight|notifications|touchpad' 2 ;;
+	esac
+}
+
+status_command() {
+	case "${1:-}" in
+	"") managed_chezmoi status ;;
+	battery) battery_status ;;
+	updates | update-available) update_available ;;
+	voxtype) voxtype_status ;;
+	*)
+		if managed_app_target "$1" >/dev/null; then
+			managed_chezmoi status "$1"
+		else
+			die 'Usage: dotfiles status [app]|battery|updates|voxtype' 2
+		fi
+		;;
+	esac
+}
+
+reset_command() {
+	case "${1:-}" in
+	ratune)
+		shift
+		reset_ratune "$@"
+		;;
+	*) die 'Usage: dotfiles reset ratune' 2 ;;
+	esac
+}
+
+control_command() {
+	case "${1:-}" in
+	wifi) launch_wifi ;;
+	bluetooth) launch_bluetooth ;;
+	audio) launch_audio ;;
+	*) die 'Usage: dotfiles control wifi|bluetooth|audio' 2 ;;
+	esac
+}
+
+system_command() {
+	case "${1:-}" in
+	lock) system_lock ;;
+	wake) system_wake ;;
+	update) system_update ;;
+	timezone | tz-select) system_timezone ;;
+	power-menu | power) power_menu ;;
+	*) die 'Usage: dotfiles system lock|wake|update|timezone|power-menu' 2 ;;
+	esac
+}
+
+window_command() {
+	case "${1:-}" in
+	close-all) window_close_all ;;
+	pop) window_pop ;;
+	*) die 'Usage: dotfiles window close-all|pop' 2 ;;
+	esac
+}
+
+workspace_command() {
+	case "${1:-}" in
+	layout-toggle) workspace_layout_toggle ;;
+	monitor-scaling-cycle)
+		shift
+		monitor_scaling_cycle "$@"
+		;;
+	*) die 'Usage: dotfiles workspace layout-toggle|monitor-scaling-cycle' 2 ;;
+	esac
+}
+
+brightness_command() {
+	local kind="${1:-}"
+	[[ -n $kind ]] || die 'Usage: dotfiles brightness display|keyboard ...' 2
+	shift
+
+	case "$kind" in
+	display) brightness_display "$@" ;;
+	keyboard) brightness_keyboard "$@" ;;
+	*) die 'Usage: dotfiles brightness display|keyboard ...' 2 ;;
+	esac
+}
+
+audio_command() {
+	case "${1:-}" in
+	input-mute) audio_input_mute ;;
+	output-switch) audio_output_switch ;;
+	*) die 'Usage: dotfiles audio input-mute|output-switch' 2 ;;
+	esac
+}
+
+voxtype_command() {
+	case "${1:-}" in
+	status) voxtype_status ;;
+	config) voxtype_config ;;
+	model) voxtype_model ;;
+	*) die 'Usage: dotfiles voxtype status|config|model' 2 ;;
+	esac
+}
+
+main() {
+	local command_name="${1:-help}"
+	shift || true
+
+	case "$command_name" in
+	help | -h | --help) show_help "$@" ;;
+	apps) show_managed_apps ;;
+	diff) managed_chezmoi diff "$@" ;;
+	apply) managed_chezmoi apply "$@" ;;
+	menu) menu_command "$@" ;;
+	restart) restart_service "$@" ;;
+	reset) reset_command "$@" ;;
+	screensaver) screensaver_command "$@" ;;
+	open-app) open_app "$@" ;;
+	open-or-focus) launch_or_focus "$@" ;;
+	open-tui) launch_tui "$@" ;;
+	open-or-focus-tui) launch_or_focus_tui "$@" ;;
+	open-web-app) launch_webapp "$@" ;;
+	open-or-focus-web-app) launch_or_focus_webapp "$@" ;;
+	open-or-focus-browser) launch_or_focus_browser "$@" ;;
+	create-web-app) create_web_app "$@" ;;
+	create-tui-app) create_tui_app "$@" ;;
+	open-browser) launch_browser "$@" ;;
+	edit) launch_editor "$@" ;;
+	set) set_default "$@" ;;
+	shell-auto-complete) shell_auto_complete_command "$@" ;;
+	capture) capture_command "$@" ;;
+	toggle) toggle_command "$@" ;;
+	status) status_command "$@" ;;
+	control) control_command "$@" ;;
+	system) system_command "$@" ;;
+	window) window_command "$@" ;;
+	workspace) workspace_command "$@" ;;
+	brightness) brightness_command "$@" ;;
+	audio) audio_command "$@" ;;
+	voxtype) voxtype_command "$@" ;;
+	osd) swayosd_client "$@" ;;
+	walker) launch_walker "$@" ;;
+	input) menu_input "$@" ;;
+	open-floating-terminal) launch_floating_terminal "$@" ;;
+	keybindings) show_keybindings ;;
+	internal-terminal-cwd) cmd_terminal_cwd ;;
+	complete) completion_command "$@" ;;
+	*) die "Unknown dotfiles command: $command_name. Run: dotfiles help" 2 ;;
+	esac
+}
+
+main "$@"

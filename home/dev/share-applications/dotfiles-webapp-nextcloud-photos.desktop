@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Nextcloud Photos
+Comment=Web app managed by dotfiles
+Exec=dotfiles open-or-focus-web-app Photos https://nextcloud.elvisgastelum.com/index.php/apps/photos/
+Icon=web-browser
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=false

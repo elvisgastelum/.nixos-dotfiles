@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+
+command_present() {
+	command -v "$1" >/dev/null 2>&1
+}
+
+die() {
+	printf '%s\n' "$1" >&2
+	exit "${2:-1}"
+}
+
+slugify() {
+	local input
+	local slug=""
+	local char
+	local i
+	local last_dash=false
+
+	input=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+
+	for ((i = 0; i < ${#input}; i++)); do
+		char=${input:i:1}
+
+		if [[ $char =~ [a-z0-9] ]]; then
+			slug+="$char"
+			last_dash=false
+		elif [[ -n $slug && $last_dash == "false" ]]; then
+			slug+="-"
+			last_dash=true
+		fi
+	done
+
+	slug=${slug%-}
+	printf '%s\n' "$slug"
+}
+
+default_todo_root() {
+	local data_home
+
+	if [[ -n ${TUXEDO_TASKS_ROOT:-} ]]; then
+		[[ $TUXEDO_TASKS_ROOT == /* ]] || die 'TUXEDO_TASKS_ROOT must be an absolute path.' 2
+		printf '%s\n' "$TUXEDO_TASKS_ROOT"
+		return
+	fi
+
+	if [[ -d $HOME/Nextcloud || -d $HOME/Nextcloud/Tasks ]]; then
+		printf '%s\n' "$HOME/Nextcloud/Tasks/tuxedo/todos"
+		return
+	fi
+
+	data_home=${XDG_DATA_HOME:-}
+	if [[ -z $data_home || $data_home != /* ]]; then
+		data_home="$HOME/.local/share"
+	fi
+
+	printf '%s\n' "$data_home/dev/todos"
+}
+
+list_scopes() {
+	local scope_dir
+
+	mkdir -p "$todo_root"
+
+	shopt -s nullglob
+	for scope_dir in "$todo_root"/*; do
+		[[ -d $scope_dir ]] || continue
+		printf '%s\n' "${scope_dir##*/}"
+	done
+	shopt -u nullglob
+}
+
+ensure_scope() {
+	local scope=$1
+	local scope_dir="$todo_root/$scope"
+	local todo_file="$scope_dir/todo.txt"
+
+	mkdir -p "$scope_dir"
+	touch "$todo_file"
+
+	printf '%s\n' "$todo_file"
+}
+
+select_scope_linux() {
+	local new_option="+ New list"
+	local selection
+	local name
+	local scope
+	local options=("$new_option")
+
+	command_present dotfiles || die 'dotfiles is required but was not found.' 127
+
+	while IFS= read -r scope; do
+		[[ -n $scope ]] || continue
+		options+=("$scope")
+	done < <(list_scopes)
+
+	selection=$(printf '%s\n' "${options[@]}" | dotfiles walker --dmenu --width 420 --minheight 1 --maxheight 420 -p "Tasks" 2>/dev/null || true)
+	[[ -n $selection ]] || exit 0
+
+	if [[ $selection == "$new_option" ]]; then
+		name=$(dotfiles input "New task list" --width 420 2>/dev/null || true)
+		[[ -n $name ]] || exit 0
+		slugify "$name"
+		return
+	fi
+
+	slugify "$selection"
+}
+
+launch_linux() {
+	local scope=$1
+	local todo_file=$2
+	local app_id="org.dotfiles.tuxedo-tasks-$scope"
+	local window_address=""
+
+	if command_present hyprctl && command_present jq; then
+		window_address=$(hyprctl clients -j | jq -r --arg app_id "$app_id" 'first(.[] | select(.class == $app_id or .initialClass == $app_id) | .address) // empty')
+	fi
+
+	if [[ -n $window_address ]]; then
+		exec hyprctl dispatch focuswindow "address:$window_address"
+	fi
+
+	if command_present uwsm-app && command_present xdg-terminal-exec; then
+		exec setsid uwsm-app -- xdg-terminal-exec --app-id="$app_id" --title="Tasks: $scope" -e tuxedo "$todo_file"
+	fi
+
+	if command_present ghostty; then
+		exec ghostty --class="$app_id" --title="Tasks: $scope" -e tuxedo "$todo_file"
+	fi
+
+	if command_present xdg-terminal-exec; then
+		exec xdg-terminal-exec -e tuxedo "$todo_file"
+	fi
+
+	die 'No supported terminal launcher found.' 127
+}
+
+launch_macos() {
+	local scope=$1
+	local todo_file=$2
+	local title="Tasks: $scope"
+
+	if command_present alacritty; then
+		exec alacritty --title "$title" -e tuxedo "$todo_file"
+	fi
+
+	if [[ -x /Applications/Alacritty.app/Contents/MacOS/alacritty ]]; then
+		exec /Applications/Alacritty.app/Contents/MacOS/alacritty --title "$title" -e tuxedo "$todo_file"
+	fi
+
+	if [[ -x $HOME/Applications/Alacritty.app/Contents/MacOS/alacritty ]]; then
+		exec "$HOME/Applications/Alacritty.app/Contents/MacOS/alacritty" --title "$title" -e tuxedo "$todo_file"
+	fi
+
+	if command_present osascript; then
+		osascript - "$todo_file" <<'APPLESCRIPT'
+on run argv
+  set todoFile to item 1 of argv
+  tell application "Terminal"
+    activate
+    do script "tuxedo " & quoted form of todoFile
+  end tell
+end run
+APPLESCRIPT
+		exit 0
+	fi
+
+	die 'Alacritty or Terminal.app is required on macOS.' 127
+}
+
+open_scope() {
+	local scope=$1
+	local todo_file
+
+	todo_file=$(ensure_scope "$scope")
+
+	case $(uname -s) in
+	Darwin) launch_macos "$scope" "$todo_file" ;;
+	Linux) launch_linux "$scope" "$todo_file" ;;
+	*) exec tuxedo "$todo_file" ;;
+	esac
+}
+
+usage() {
+	printf 'Usage: tuxedo-tasks [scope]\n'
+	printf '       tuxedo-tasks --list\n'
+	printf '       tuxedo-tasks --root\n'
+	printf '       tuxedo-tasks --path <scope>\n'
+}
+
+todo_root=$(default_todo_root)
+
+command_present tuxedo || die 'tuxedo is required but was not found. Install the tuxedo package first.' 127
+
+case ${1:-} in
+--help | -h)
+	usage
+	exit 0
+	;;
+--root)
+	printf '%s\n' "$todo_root"
+	exit 0
+	;;
+--list)
+	list_scopes
+	exit 0
+	;;
+--path)
+	shift
+	[[ $# -gt 0 ]] || die 'Scope is required for --path.' 2
+	scope=$(slugify "$*")
+	[[ -n $scope ]] || die 'Scope must contain letters or numbers.' 2
+	ensure_scope "$scope"
+	exit 0
+	;;
+esac
+
+scope=${1:-}
+if [[ -z $scope ]]; then
+	if [[ $(uname -s) == "Linux" ]]; then
+		scope=$(select_scope_linux)
+	else
+		die 'Scope is required. Use the Hammerspoon Tasks chooser on macOS.' 2
+	fi
+else
+	scope=$(slugify "$*")
+fi
+
+if [[ -z $scope ]]; then
+	notify-send -u critical "Tasks" "Enter a list name containing letters or numbers." 2>/dev/null || true
+	exit 1
+fi
+
+open_scope "$scope"
