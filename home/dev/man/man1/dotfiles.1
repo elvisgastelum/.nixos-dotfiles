@@ -27,6 +27,9 @@ Preview all managed dotfile changes, or only the named app/config.
 .B dotfiles apply [app]
 Apply all managed dotfile changes, or only the named app/config.
 .TP
+.B dotfiles rebuild
+Switch the NixOS configuration using the managed flake.
+.TP
 .B dotfiles menu [section]
 Open the Walker-backed dotfiles menu. Supported sections include
 .BR apps ,
@@ -180,6 +183,7 @@ dotfiles menu defaults
 dotfiles apps
 dotfiles diff walker
 dotfiles apply walker
+dotfiles rebuild
 dotfiles status walker
 dotfiles restart waybar
 dotfiles reset ratune

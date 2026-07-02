@@ -7,7 +7,7 @@ return {
 		-- All builtin colorschemes can be accessed with |:colorscheme|.
 		-- vim.cmd('colorscheme base16-gruvbox-dark-soft')
 		-- vim.cmd('colorscheme base16-catppuccin-mocha')
-		vim.cmd('colorscheme base16-gruvbox-dark-hard')
+		vim.cmd('colorscheme base16-tokyo-night-dark')
 
 		-- -- Alternatively, you can provide a table specifying your colors to the setup function.
 		-- require('base16-colorscheme').setup({
