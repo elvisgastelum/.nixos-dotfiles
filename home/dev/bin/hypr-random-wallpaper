@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+wallpaper_dir="${XDG_CONFIG_HOME:-$HOME/.config}/wallpaper"
+interval_seconds="${HYPR_RANDOM_WALLPAPER_INTERVAL:-300}"
+
+pick_wallpaper() {
+  local -a wallpapers=()
+
+  if [[ -d "$wallpaper_dir" ]]; then
+    while IFS= read -r -d '' wallpaper; do
+      wallpapers+=("$wallpaper")
+    done < <(
+      find -L "$wallpaper_dir" -maxdepth 1 -type f \
+        \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) \
+        -print0
+    )
+  fi
+
+  if (( ${#wallpapers[@]} == 0 )); then
+    return 1
+  fi
+
+  printf '%s\n' "${wallpapers[RANDOM % ${#wallpapers[@]}]}"
+}
+
+apply_random_wallpaper() {
+  local wallpaper
+    wallpaper="$(pick_wallpaper)" || return 1
+
+  hyprctl hyprpaper wallpaper "*, $wallpaper, cover" >/dev/null
+}
+
+hyprpaper &
+hyprpaper_pid=$!
+
+for _ in {1..20}; do
+  if apply_random_wallpaper 2>/dev/null; then
+    break
+  fi
+
+  sleep 0.25
+done
+
+while kill -0 "$hyprpaper_pid" 2>/dev/null; do
+  sleep "$interval_seconds"
+  apply_random_wallpaper || true
+done
+
+wait "$hyprpaper_pid"

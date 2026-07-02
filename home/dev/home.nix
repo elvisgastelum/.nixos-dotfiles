@@ -26,6 +26,7 @@
     "tmux"
     "uwsm"
     "walker"
+    "wallpaper"
     "waybar"
   ];
 

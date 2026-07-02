@@ -22,8 +22,6 @@ command_exists() {
 setup_path() {
 	path_prepend "$HOME/.local/share/pnpm/bin"
 	path_prepend "$HOME/.local/share/gem/ruby/3.4.0/bin" "$HOME/.local/bin"
-	path_remove "$HOME/.local/share/omarchy/bin"
-	unset OMARCHY_PATH
 }
 
 setup_macos_path() {

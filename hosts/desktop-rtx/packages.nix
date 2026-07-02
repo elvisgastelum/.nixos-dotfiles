@@ -14,13 +14,13 @@ in
     chromium
     curl
     dunst
-     eza
-     fd
-     ffmpeg
-     fastfetch
-     fcitx5
-     foot
-     fzf
+    eza
+    fd
+    ffmpeg
+    fastfetch
+    fcitx5
+    foot
+    fzf
     git
     gnome-calculator
     gnumake
@@ -58,7 +58,6 @@ in
     slurp
     sops
     steam
-    swaybg
     tmux
     unzip
     vim
@@ -93,4 +92,3 @@ in
   ++ optionalPackage "walker"
   ++ optionalPackage "wiremix"
 # Zap is bootstrapped in zsh defaults (plugins.zsh), not packaged in nixpkgs
-
