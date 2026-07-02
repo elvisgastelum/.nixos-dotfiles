@@ -82,7 +82,7 @@
     },
     "SytemTester": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Runs verification, tests, and quality checks.",
       "permission": {
         "edit": "deny",
@@ -96,7 +96,7 @@
     },
     "CodeTester": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Runs verification, tests, and quality checks.",
       "permission": {
         "edit": "deny",
@@ -110,7 +110,7 @@
     },
     "CodeResearch": {
       "mode": "subagent",
-      "model": "openrouter/deepseek/deepseek-v4-pro",
+      "model": "openai/gpt-5.5",
       "description": "Researches current library, framework, SDK, API, CLI, and cloud-service documentation using Context7.",
       "permission": {
         "edit": "deny",
@@ -125,7 +125,7 @@
     },
     "CodeExplore": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Finds relevant files, symbols, dependencies, routes, tests, and implementation patterns before edits.",
       "permission": {
         "edit": "deny",
@@ -140,7 +140,7 @@
     },
     "CodeWriter": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Applies narrow code edits exactly as instructed by a primary orchestrator.",
       "permission": {
         "edit": "allow",
@@ -155,7 +155,7 @@
     },
     "CodeGit": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Summarizes git status, diffs, changed files, and commit-readiness risks.",
       "permission": {
         "edit": "deny",
@@ -170,7 +170,7 @@
     },
     "CodeArtifactsCreator": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Inspects repository scripts and creates build/dist artifacts by running build commands.",
       "permission": {
         "edit": "deny",
@@ -185,7 +185,7 @@
     },
     "CodeFormatter": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Fixes formatting and simple lint autofix issues.",
       "permission": {
         "edit": "allow",
@@ -200,7 +200,7 @@
     },
     "CodeLint": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Investigates lint, formatting, import ordering, and style failures.",
       "permission": {
         "edit": "deny",
@@ -215,7 +215,7 @@
     },
     "CodeTypes": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Investigates TypeScript, typing, schema, generated API, and interface mismatch issues.",
       "permission": {
         "edit": "deny",
@@ -230,7 +230,7 @@
     },
     "CodeReview": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Reviews diffs or focused code areas for bugs, regressions, missing edge cases, and maintainability risks.",
       "permission": {
         "edit": "deny",
@@ -245,7 +245,7 @@
     },
     "CodeUI": {
       "mode": "subagent",
-      "model": "openrouter/tencent/hy3-preview",
+      "model": "openai/gpt-5.4-mini",
       "description": "Analyzes frontend UI structure, component usage, responsiveness, accessibility, and design-system consistency.",
       "permission": {
         "edit": "deny",

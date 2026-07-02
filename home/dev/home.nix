@@ -48,6 +48,9 @@ in {
 
   xdg.enable = true;
 
+  # UWSM manages the Hyprland systemd session; avoid Home Manager's integration conflict.
+  wayland.windowManager.hyprland.systemd.enable = false;
+
   home.packages = with pkgs;
     [
       bat

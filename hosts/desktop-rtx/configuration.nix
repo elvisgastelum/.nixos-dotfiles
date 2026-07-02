@@ -1,7 +1,7 @@
 { config, pkgs, ... }:
 
 let
-  startHyprland = "${config.programs.hyprland.package}/bin/start-hyprland";
+  startHyprland = "${pkgs.uwsm}/bin/uwsm start -- hyprland.desktop";
 in
 {
   imports = [
@@ -24,6 +24,17 @@ in
 
   # Select internationalisation properties.
   i18n.defaultLocale = "en_US.UTF-8";
+
+  i18n.inputMethod = {
+    type = "fcitx5";
+    fcitx5 = {
+      waylandFrontend = true;
+      addons = with pkgs; [
+        fcitx5-gtk
+        kdePackages.fcitx5-qt
+      ];
+    };
+  };
 
   # Configure keymap in X11.
   services.xserver.xkb = {
@@ -76,6 +87,7 @@ in
 
   programs.hyprland = {
     enable = true;
+    withUWSM = true;
     xwayland.enable = true;
   };
 

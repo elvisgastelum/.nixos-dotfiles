@@ -18,6 +18,7 @@ in
      fd
      ffmpeg
      fastfetch
+     fcitx5
      foot
      fzf
     git
