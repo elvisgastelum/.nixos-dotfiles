@@ -62,6 +62,7 @@ in {
       nodejs_22
       ripgrep
       tmux
+      python313Packages.terminaltexteffects
       unzip
       yq
       zoxide
