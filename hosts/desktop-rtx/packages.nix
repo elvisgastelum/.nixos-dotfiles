@@ -34,6 +34,7 @@ in
     hyprshot
     hyprsunset
     jq
+		tuxedo
     keyutils
     kitty
     lazygit
