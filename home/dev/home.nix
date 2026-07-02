@@ -32,6 +32,7 @@
 
   configFiles = {
     "chromium-flags.conf" = ./config/chromium-flags.conf;
+    "xdg-terminals.list" = ./config/xdg-terminals.list;
     "zsh/default" = ./config/zsh/default;
   };
 
