@@ -137,10 +137,14 @@ return {
 
 		-- Load extensions
 		-- require('telescope').load_extension('notify')
-		require('telescope').load_extension('fzf')
+		pcall(function()
+			require('telescope').load_extension('fzf')
+		end)
 		-- require('telescope').load_extension('ui-select')
 		-- require('telescope').load_extension('lsp_handlers')
-		require('telescope').load_extension('harpoon')
+		pcall(function()
+			require('telescope').load_extension('harpoon')
+		end)
 		-- require("telescope").load_extension("noice")
 	end
 }
