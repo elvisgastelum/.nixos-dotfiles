@@ -111,6 +111,29 @@ M.lazy_setup = {
 			end
 		end
 
+		lspconfig.nixd.setup {
+			on_attach = on_attach,
+			capabilities = capabilities,
+			settings = {
+				nixd = {
+					nixpkgs = {
+						expr = 'import (builtins.getFlake "/home/dev/.nixos-dotfiles").inputs.nixpkgs { system = "x86_64-linux"; }',
+					},
+					formatting = {
+						command = { 'nixfmt' },
+					},
+					options = {
+						nixos = {
+							expr = '(builtins.getFlake "/home/dev/.nixos-dotfiles").nixosConfigurations.desktop-rtx.options',
+						},
+						home_manager = {
+							expr = '(builtins.getFlake "/home/dev/.nixos-dotfiles").nixosConfigurations.desktop-rtx.options.home-manager.users.type.getSubOptions []',
+						},
+					},
+				},
+			},
+		}
+
 		require('mason-lspconfig').setup({
 			ensure_installed = {
 				'bashls',

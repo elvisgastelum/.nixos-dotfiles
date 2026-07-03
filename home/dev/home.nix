@@ -62,6 +62,8 @@ in {
       fzf
       jq
       nodejs_22
+      nixd
+      nixfmt
       ripgrep
       tmux
       python313Packages.terminaltexteffects
