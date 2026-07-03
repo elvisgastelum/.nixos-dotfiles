@@ -51,7 +51,7 @@
 		}
 	},
 	"custom/menu": {
-		"format": "󰣇",
+		"format": "",
 		"on-click": "dotfiles menu",
 		"on-click-right": "dotfiles walker",
 		"tooltip-format": "Dotfiles Menu\n\nSuper + Alt + Space\nRight click: App Launcher"
