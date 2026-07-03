@@ -39,6 +39,69 @@ run_background() {
 	fi
 }
 
+waybar_running() {
+	pgrep -x waybar >/dev/null 2>&1 && return 0
+	pgrep -x .waybar-wrapped >/dev/null 2>&1 && return 0
+	pgrep -f '(^|[[:space:]])[^[:space:]]*/waybar([[:space:]]|$)' >/dev/null 2>&1 && return 0
+	pgrep -f '(^|[[:space:]])[^[:space:]]*/\.waybar-wrapped([[:space:]]|$)' >/dev/null 2>&1 && return 0
+	pgrep -f '(^|[[:space:]])uwsm-app([[:space:]].*|$).*([[:space:]]--[[:space:]]waybar([[:space:]]|$)|[[:space:]]--[[:space:]][^[:space:]]*/waybar([[:space:]]|$)|[[:space:]]--[[:space:]]\.waybar-wrapped([[:space:]]|$)|[[:space:]]--[[:space:]][^[:space:]]*/\.waybar-wrapped([[:space:]]|$))' >/dev/null 2>&1 && return 0
+
+	return 1
+}
+
+wait_for_waybar_start() {
+	local attempt
+
+	for ((attempt = 0; attempt < 20; attempt++)); do
+		waybar_running && return 0
+		sleep 0.1
+	done
+
+	return 1
+}
+
+stop_waybar() {
+	local attempt
+
+	pkill -x waybar 2>/dev/null || true
+	pkill -x .waybar-wrapped 2>/dev/null || true
+	pkill -f '(^|[[:space:]])[^[:space:]]*/waybar([[:space:]]|$)' 2>/dev/null || true
+	pkill -f '(^|[[:space:]])[^[:space:]]*/\.waybar-wrapped([[:space:]]|$)' 2>/dev/null || true
+	pkill -f '(^|[[:space:]])uwsm-app([[:space:]].*|$).*([[:space:]]--[[:space:]]waybar([[:space:]]|$)|[[:space:]]--[[:space:]][^[:space:]]*/waybar([[:space:]]|$)|[[:space:]]--[[:space:]]\.waybar-wrapped([[:space:]]|$)|[[:space:]]--[[:space:]][^[:space:]]*/\.waybar-wrapped([[:space:]]|$))' 2>/dev/null || true
+
+	for ((attempt = 0; attempt < 30; attempt++)); do
+		waybar_running || return 0
+		sleep 0.1
+	done
+
+	pkill -KILL -x waybar 2>/dev/null || true
+	pkill -KILL -x .waybar-wrapped 2>/dev/null || true
+	pkill -KILL -f '(^|[[:space:]])[^[:space:]]*/waybar([[:space:]]|$)' 2>/dev/null || true
+	pkill -KILL -f '(^|[[:space:]])[^[:space:]]*/\.waybar-wrapped([[:space:]]|$)' 2>/dev/null || true
+	pkill -KILL -f '(^|[[:space:]])uwsm-app([[:space:]].*|$).*([[:space:]]--[[:space:]]waybar([[:space:]]|$)|[[:space:]]--[[:space:]][^[:space:]]*/waybar([[:space:]]|$)|[[:space:]]--[[:space:]]\.waybar-wrapped([[:space:]]|$)|[[:space:]]--[[:space:]][^[:space:]]*/\.waybar-wrapped([[:space:]]|$))' 2>/dev/null || true
+
+	for ((attempt = 0; attempt < 10; attempt++)); do
+		waybar_running || return 0
+		sleep 0.1
+	done
+
+	return 1
+}
+
+waybar_lock_run() (
+	local lock_dir="${XDG_RUNTIME_DIR:-/tmp}/dotfiles-waybar.lock"
+
+	[[ $# -gt 0 ]] || exit 2
+
+	if mkdir "$lock_dir" 2>/dev/null; then
+		trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+		"$@"
+	else
+		[[ -d $lock_dir ]] && exit 2
+		exit 1
+	fi
+)
+
 shell_join() {
 	local arg quoted output=""
 
@@ -1500,10 +1563,27 @@ toggle_touchpad() {
 }
 
 toggle_waybar() {
-	if pgrep -x waybar >/dev/null; then
-		pkill -x waybar
+	local status
+
+	if waybar_lock_run toggle_waybar_locked; then
+		return 0
+	else
+		status=$?
+	fi
+
+	if (( status == 2 )); then
+		die 'Waybar action already in progress.' 1
+	fi
+
+	return "$status"
+}
+
+toggle_waybar_locked() {
+	if waybar_running; then
+		stop_waybar
 	else
 		run_background waybar
+		wait_for_waybar_start
 	fi
 }
 
@@ -1756,8 +1836,27 @@ restart_walker() {
 }
 
 restart_waybar() {
-	pkill -x waybar 2>/dev/null || true
+	local status
+
+	if waybar_lock_run restart_waybar_locked; then
+		return 0
+	else
+		status=$?
+	fi
+
+	if (( status == 2 )); then
+		die 'Waybar action already in progress.' 1
+	fi
+
+	return "$status"
+}
+
+restart_waybar_locked() {
+	if ! stop_waybar; then
+		return 1
+	fi
 	run_background waybar
+	wait_for_waybar_start
 }
 
 restart_service() {
