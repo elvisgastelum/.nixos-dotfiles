@@ -153,8 +153,9 @@ Toggle microphone mute or switch audio output.
 .B dotfiles osd [swayosd-client args...]
 Proxy to swayosd-client on the focused monitor.
 .TP
-.B dotfiles walker [walker args...]
-Launch Walker with dotfiles defaults.
+.B dotfiles walker [--sock] [walker args...]
+Launch Walker with dotfiles defaults. With no Walker arguments, dotfiles tries
+the Walker socket first when available.
 .TP
 .B dotfiles input prompt [walker args...]
 Prompt for a single input value through Walker.

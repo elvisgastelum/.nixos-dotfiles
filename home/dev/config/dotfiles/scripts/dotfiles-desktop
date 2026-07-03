@@ -1129,6 +1129,28 @@ launch_editor() {
 }
 
 launch_walker() {
+	local walker_args=()
+	local use_socket=false
+	local socket
+
+	if [[ ${1:-} == --sock ]]; then
+		shift
+		if (($# == 0)); then
+			use_socket=true
+		fi
+	elif (($# == 0)); then
+		use_socket=true
+	fi
+
+	walker_args=("$@")
+
+	if $use_socket && command_present nc && [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
+		socket="$XDG_RUNTIME_DIR/walker/walker.sock"
+		if [[ -S $socket ]] && command_present timeout && timeout 1s nc -U "$socket" </dev/null >/dev/null 2>&1; then
+			return 0
+		fi
+	fi
+
 	if command_present elephant && ! pgrep -x elephant >/dev/null; then
 		run_background elephant
 	fi
@@ -1137,7 +1159,7 @@ launch_walker() {
 		run_background env GSK_RENDERER=cairo walker --gapplication-service
 	fi
 
-	exec walker --width 644 --maxheight 300 --minheight 300 "$@"
+	exec walker --width 644 --maxheight 300 --minheight 300 "${walker_args[@]}"
 }
 
 menu_input() {
