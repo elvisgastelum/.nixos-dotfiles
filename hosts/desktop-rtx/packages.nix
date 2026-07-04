@@ -24,6 +24,7 @@ in
     git
     gnome-calculator
     gnumake
+    gcc
     google-chrome
     grim
     hypridle
@@ -34,7 +35,7 @@ in
     hyprshot
     hyprsunset
     jq
-		tuxedo
+    tuxedo
     keyutils
     kitty
     lazygit
@@ -77,20 +78,20 @@ in
     zoxide
     zsh
   ])
-    ++ optionalPackage "bluetui"
-    ++ optionalPackage "brave"
-    ++ optionalPackage "elephant"
-    ++ optionalPackage "netcat"
-    ++ optionalPackage "ghostty"
-    ++ optionalPackage "gpu-screen-recorder"
-    ++ optionalPackage "hyprland-preview-share-picker"
+  ++ optionalPackage "bluetui"
+  ++ optionalPackage "brave"
+  ++ optionalPackage "elephant"
+  ++ optionalPackage "netcat"
+  ++ optionalPackage "ghostty"
+  ++ optionalPackage "gpu-screen-recorder"
+  ++ optionalPackage "hyprland-preview-share-picker"
   ++ optionalPackage "impala"
   ++ optionalPackage "polkit_gnome"
   ++ optionalPackage "power-profiles-daemon"
   ++ optionalPackage "prettier"
   ++ optionalPackage "ratune"
   ++ optionalPackage "swayosd"
-    ++ optionalPackage "uwsm"
-    ++ optionalPackage "walker"
-    ++ optionalPackage "wiremix"
+  ++ optionalPackage "uwsm"
+  ++ optionalPackage "walker"
+  ++ optionalPackage "wiremix"
 # Zap is bootstrapped in zsh defaults (plugins.zsh), not packaged in nixpkgs
