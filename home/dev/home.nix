@@ -88,25 +88,23 @@ in
   };
 
   xdg.configFile =
-    lib.genAttrs (builtins.filter (name: name != "nvim") configDirs) (name: {
-      source = ./config + "/${name}";
-      recursive = true;
+    lib.genAttrs configDirs (name: {
+      source = config.lib.file.mkOutOfStoreSymlink "${dotfilesDir}/home/dev/config/${name}";
     })
-    // {
-      nvim.source = config.lib.file.mkOutOfStoreSymlink "${dotfilesDir}/home/dev/config/nvim";
-    }
-    // lib.mapAttrs (_: source: { inherit source; }) configFiles;
+    // lib.mapAttrs (name: _: {
+      source = config.lib.file.mkOutOfStoreSymlink "${dotfilesDir}/home/dev/config/${name}";
+    }) configFiles;
 
   home.file =
     lib.genAttrs (map (name: ".local/bin/${name}") binFiles) (target: {
-      source = ./bin + "/${builtins.baseNameOf target}";
+      source = ./bin + "/${baseNameOf target}";
       executable = true;
     })
     // lib.genAttrs (map (name: ".local/share/applications/${name}") desktopFiles) (target: {
-      source = ./share-applications + "/${builtins.baseNameOf target}";
+      source = ./share-applications + "/${baseNameOf target}";
     })
     // lib.genAttrs (map (name: ".local/share/man/man1/${name}") manFiles) (target: {
-      source = ./man/man1 + "/${builtins.baseNameOf target}";
+      source = ./man/man1 + "/${baseNameOf target}";
     })
     // {
       ".claude" = {
