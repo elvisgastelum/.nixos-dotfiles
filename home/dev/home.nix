@@ -3,7 +3,8 @@
   lib,
   pkgs,
   ...
-}: let
+}:
+let
   configDirs = [
     "alacritty"
     "btop"
@@ -40,11 +41,14 @@
   desktopFiles = builtins.attrNames (builtins.readDir ./share-applications);
   manFiles = builtins.attrNames (builtins.readDir ./man/man1);
 
-  optionalPackage = name:
-    lib.optional (builtins.hasAttr name pkgs) (builtins.getAttr name pkgs);
+  optionalPackage = name: lib.optional (builtins.hasAttr name pkgs) (builtins.getAttr name pkgs);
 
   homeDir = config.home.homeDirectory;
-in {
+  # Intentionally outside the Nix store so selected app configs stay live-editable;
+  # this checkout is expected to live at the host-local dotfiles path below.
+  dotfilesDir = "${homeDir}/.nixos-dotfiles";
+in
+{
   home.username = "dev";
   home.homeDirectory = "/home/dev";
 
@@ -53,7 +57,8 @@ in {
   # UWSM manages the Hyprland systemd session; avoid Home Manager's integration conflict.
   wayland.windowManager.hyprland.systemd.enable = false;
 
-  home.packages = with pkgs;
+  home.packages =
+    with pkgs;
     [
       bat
       btop
@@ -77,17 +82,20 @@ in {
     ++ optionalPackage "wiremix";
 
   home.sessionVariables = {
-    DOTFILES_SOURCE_DIR = "${homeDir}/.nixos-dotfiles";
+    DOTFILES_SOURCE_DIR = dotfilesDir;
     ZDOTDIR = "${homeDir}/.config/zsh";
     ZSH_CONFIG_HOME = "${homeDir}/.config/zsh";
   };
 
   xdg.configFile =
-    lib.genAttrs configDirs (name: {
+    lib.genAttrs (builtins.filter (name: name != "nvim") configDirs) (name: {
       source = ./config + "/${name}";
       recursive = true;
     })
-    // lib.mapAttrs (_: source: {inherit source;}) configFiles;
+    // {
+      nvim.source = config.lib.file.mkOutOfStoreSymlink "${dotfilesDir}/home/dev/config/nvim";
+    }
+    // lib.mapAttrs (_: source: { inherit source; }) configFiles;
 
   home.file =
     lib.genAttrs (map (name: ".local/bin/${name}") binFiles) (target: {
@@ -107,7 +115,7 @@ in {
       };
     };
 
-  home.activation.createMutableZshFiles = lib.hm.dag.entryAfter ["writeBoundary"] ''
+  home.activation.createMutableZshFiles = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     zsh_config_dir="${homeDir}/.config/zsh"
 
     run mkdir -p "$zsh_config_dir"

@@ -1,14 +1,29 @@
 { config, pkgs, ... }:
 
 let
-  startHyprland = "${pkgs.uwsm}/bin/uwsm start -- hyprland.desktop";
+  startHyprland = "${pkgs.uwsm}/bin/uwsm start -e -D Hyprland -- hyprland.desktop";
+  onlyUwsmHyprlandSession = pkgs.writeTextDir "share/wayland-sessions/hyprland-uwsm-only.desktop" ''
+    [Desktop Entry]
+    Name=Hyprland (uwsm-managed)
+    Comment=Hyprland compositor managed by UWSM
+    Exec=${startHyprland}
+    TryExec=${pkgs.uwsm}/bin/uwsm
+    DesktopNames=Hyprland
+    Type=Application
+  '';
+  emptyXsessionsDir = pkgs.runCommand "empty-xsessions" { } ''
+    mkdir -p $out/share/xsessions
+  '';
 in
 {
   imports = [
     ./hardware-configuration.nix
   ];
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
   environment.systemPackages = with pkgs; import ./packages.nix { inherit pkgs; };
 
   # Bootloader.
@@ -71,7 +86,13 @@ in
     isNormalUser = true;
     description = "Elvis Gastelum";
     shell = pkgs.zsh;
-    extraGroups = [ "networkmanager" "wheel" "video" "audio" "input" ];
+    extraGroups = [
+      "networkmanager"
+      "wheel"
+      "video"
+      "audio"
+      "input"
+    ];
     packages = with pkgs; [ ];
   };
 
@@ -127,7 +148,7 @@ in
     enable = true;
     settings = {
       default_session = {
-        command = "${pkgs.tuigreet}/bin/tuigreet --time --cmd ${startHyprland}";
+        command = "${pkgs.tuigreet}/bin/tuigreet --time --sessions ${onlyUwsmHyprlandSession}/share/wayland-sessions --xsessions ${emptyXsessionsDir}/share/xsessions";
         user = "greeter";
       };
     };
