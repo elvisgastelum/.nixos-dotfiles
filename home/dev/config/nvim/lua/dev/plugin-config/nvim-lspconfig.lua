@@ -14,13 +14,17 @@ M.lazy_setup = {
 	},
 	config = function()
 		-- This is where all the LSP shenanigans will live
-		local lspconfig = require('lspconfig')
 		local cmp_nvim_lsp = require('cmp_nvim_lsp')
 		local utils = require('dev.utils')
 		local keybindings = require('dev.keybindings')
 		local create_highlight_cmd = utils.create_highlight_cmd
 
 		local capabilities = cmp_nvim_lsp.default_capabilities()
+
+		local function configure_server(server_name, config)
+			vim.lsp.config(server_name, config)
+			vim.lsp.enable(server_name)
+		end
 
 
 		local on_attach = function(client, bufnr)
@@ -58,7 +62,7 @@ M.lazy_setup = {
 			end
 		end
 
-		lspconfig.nixd.setup {
+		configure_server('nixd', {
 			on_attach = on_attach,
 			capabilities = capabilities,
 			settings = {
@@ -79,9 +83,50 @@ M.lazy_setup = {
 					},
 				},
 			},
-		}
+		})
+
+		configure_server('bashls', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
+
+		configure_server('cssls', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
+
+		configure_server('dockerls', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
+
+		configure_server('graphql', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
+
+		configure_server('html', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
+
+		configure_server('jsonls', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
+
+		configure_server('vimls', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
+
+		configure_server('yamlls', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+		})
 
 		require('mason-lspconfig').setup({
+			automatic_enable = false,
 			ensure_installed = {
 				'bashls',
 				'cssls',
@@ -92,81 +137,67 @@ M.lazy_setup = {
 				'ts_ls',
 				'eslint',
 				'tailwindcss',
-				'tailwindcss',
 				'vimls',
 				'lua_ls',
 				'yamlls',
 			},
-			handlers = {
-				function(server_name)
-					lspconfig[server_name].setup {
-						on_attach = on_attach,
-						capabilities = capabilities,
-					}
-				end,
-				denols = function()
-					lspconfig.denols.setup {
-						on_attach = on_attach,
-						capabilities = capabilities,
-						root_dir = lspconfig.util.root_pattern("deno.json", "deno.jsonc"),
-					}
-				end,
-				ts_ls = function()
-					lspconfig.ts_ls.setup {
-						on_attach = function(client, bufnr)
-							on_attach(client, bufnr)
+		})
 
-							if require("lspconfig").util.root_pattern("deno.json", "deno.jsonc")(vim.fn.getcwd()) then
-								client.stop()
-							end
-						end,
-						root_dir = lspconfig.util.root_pattern("package.json", "tsconfig.json", "jsconfig.json"),
-						capabilities = capabilities,
-						settings = {
-							documentFormatting = false,
-						},
+		configure_server('denols', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+			root_markers = { 'deno.json', 'deno.jsonc' },
+		})
+
+		configure_server('ts_ls', {
+			on_attach = function(client, bufnr)
+				if vim.fs.root(bufnr, { 'deno.json', 'deno.jsonc' }) then
+					client.stop()
+					return
+				end
+
+				on_attach(client, bufnr)
+			end,
+			root_markers = { 'package.json', 'tsconfig.json', 'jsconfig.json' },
+			capabilities = capabilities,
+			settings = {
+				documentFormatting = false,
+			},
+		})
+
+		configure_server('prismals', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+			settings = {
+				documentFormatting = false,
+			},
+		})
+
+		configure_server('eslint', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+			settings = {
+				documentFormatting = false,
+			},
+		})
+
+		configure_server('tailwindcss', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+			settings = {
+				documentFormatting = false,
+			},
+		})
+
+		configure_server('lua_ls', {
+			on_attach = on_attach,
+			capabilities = capabilities,
+			settings = {
+				Lua = {
+					diagnostics = {
+						globals = { "vim" }
 					}
-				end,
-				prismals = function()
-					lspconfig.prismals.setup {
-						on_attach = on_attach,
-						capabilities = capabilities,
-						settings = {
-							documentFormatting = false,
-						},
-					}
-				end,
-				eslint = function()
-					lspconfig.eslint.setup {
-						on_attach = on_attach,
-						capabilities = capabilities,
-						settings = {
-							documentFormatting = false,
-						},
-					}
-				end,
-				tailwindcss = function()
-					lspconfig.tailwindcss.setup {
-						on_attach = on_attach,
-						capabilities = capabilities,
-						settings = {
-							documentFormatting = false,
-						},
-					}
-				end,
-				lua_ls = function()
-					lspconfig.lua_ls.setup {
-						on_attach = on_attach,
-						capabilities = capabilities,
-						settings = {
-							Lua = {
-								diagnostics = {
-									globals = { "vim" }
-								}
-							}
-						}
-					}
-				end,
+				}
 			}
 		})
 

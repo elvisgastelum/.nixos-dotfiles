@@ -5,6 +5,7 @@ export TERMINAL=xdg-terminal-exec
 
 # Use code for VSCode
 export EDITOR=nvim
+export NVIM_NOTTYFAST=1
 
 # Runtime defaults changed by `dotfiles set` live outside chezmoi.
 [[ -f ~/.config/dotfiles/defaults.env ]] && source ~/.config/dotfiles/defaults.env

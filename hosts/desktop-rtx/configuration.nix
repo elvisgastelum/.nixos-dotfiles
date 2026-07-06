@@ -106,6 +106,8 @@ in
     enableSSHSupport = true;
   };
 
+  programs.dconf.enable = true;
+
   programs.zsh.enable = true;
 
   programs.hyprland = {
@@ -116,9 +118,19 @@ in
 
   xdg.portal = {
     enable = true;
+    xdgOpenUsePortal = true;
     extraPortals = [
       pkgs.xdg-desktop-portal-gtk
     ];
+
+    config.common = {
+      default = [
+        "hyprland"
+        "gtk"
+      ];
+      "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
+      "org.freedesktop.impl.portal.Settings" = [ "gtk" ];
+    };
   };
 
   # Audio.

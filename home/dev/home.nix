@@ -54,6 +54,47 @@ in
 
   xdg.enable = true;
 
+  gtk = {
+    enable = true;
+
+    theme = {
+      name = "adw-gtk3-dark";
+      package = pkgs.adw-gtk3;
+    };
+
+    iconTheme = {
+      name = "Papirus-Dark";
+      package = pkgs.papirus-icon-theme;
+    };
+
+    cursorTheme = {
+      name = "macOS";
+      package = pkgs.apple-cursor;
+      size = 24;
+    };
+
+    colorScheme = "dark";
+
+    gtk3.extraConfig.gtk-application-prefer-dark-theme = 1;
+    gtk4.extraConfig.gtk-application-prefer-dark-theme = 1;
+  };
+
+  dconf = {
+    enable = true;
+    settings."org/gnome/desktop/interface" = {
+      color-scheme = "prefer-dark";
+      gtk-theme = "adw-gtk3-dark";
+      icon-theme = "Papirus-Dark";
+      cursor-theme = "macOS";
+    };
+  };
+
+  qt = {
+    enable = true;
+    platformTheme.name = "qtct";
+    style.name = "adwaita-dark";
+  };
+
   # UWSM manages the Hyprland systemd session; avoid Home Manager's integration conflict.
   wayland.windowManager.hyprland.systemd.enable = false;
 
