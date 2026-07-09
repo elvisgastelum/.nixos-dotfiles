@@ -48,22 +48,17 @@ sudo nixos-rebuild switch --flake /home/dev/.nixos-dotfiles#desktop-rtx
 
 Wi-Fi credentials are intentionally not tracked in git.
 
-This config enables NetworkManager. On a new system, connect with:
+This host does **not** use NetworkManager. It uses `iwd` directly, and the Hyprland session autostarts a polkit agent.
+
+Use `dotfiles control wifi` or press `Super + Ctrl + W` to open the Wi-Fi control panel:
 
 ```bash
-nmtui
+dotfiles control wifi
 ```
 
-Or with `nmcli`:
+This launches **Impala**, the Wi-Fi TUI. No `sudo` is needed for normal connections; if a system prompt appears, approve it via polkit.
 
-```bash
-nmcli device wifi list
-nmcli device wifi connect "SSID" --ask
-```
-
-NetworkManager stores connections outside this repository under `/etc/NetworkManager/system-connections/`.
-
-For a fully declarative future setup, add encrypted secrets with `sops-nix` or `agenix` instead of committing plaintext credentials.
+NetworkManager-style `nmtui`/`nmcli` are not the configured path here.
 
 ## First Bootstrap Notes
 
