@@ -13,6 +13,7 @@ in
     btop
     chromium
     curl
+		devenv
     dunst
     eza
     fd
