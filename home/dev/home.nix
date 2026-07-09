@@ -111,6 +111,7 @@ in
       nixd
       nixfmt
       ripgrep
+      tree-sitter
       tmux
       python313Packages.terminaltexteffects
       unzip

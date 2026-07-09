@@ -16,7 +16,7 @@ return {
 				'vim',
 				'typescript',
 				'tsx',
-				'lua'
+				'lua',
 			},
 			callback = function()
 				-- syntax highlighting, provided by Neovim
@@ -29,14 +29,13 @@ return {
 			end,
 		})
 
-
-		-- require 'nvim-treesitter'.install {
-		-- 	"c",
-		-- 	"lua",
-		-- 	"vim",
-		-- 	"typescript",
-		-- 	"tsx",
-		-- 	"javascript",
-		-- }
+		require 'nvim-treesitter'.install {
+			"c",
+			"lua",
+			"vim",
+			"typescript",
+			"tsx",
+			"javascript",
+		}
 	end,
 }

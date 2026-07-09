@@ -26,7 +26,6 @@ M.lazy_setup = {
 			vim.lsp.enable(server_name)
 		end
 
-
 		local on_attach = function(client, bufnr)
 			keybindings.apply_lsp_on_attach(utils)
 
@@ -158,7 +157,7 @@ M.lazy_setup = {
 
 				on_attach(client, bufnr)
 			end,
-			root_markers = { 'package.json', 'tsconfig.json', 'jsconfig.json' },
+			root_markers = { 'package.json', 'tsconfig.json', 'jsconfig.json', '.git' },
 			capabilities = capabilities,
 			settings = {
 				documentFormatting = false,
@@ -195,10 +194,10 @@ M.lazy_setup = {
 			settings = {
 				Lua = {
 					diagnostics = {
-						globals = { "vim" }
-					}
-				}
-			}
+						globals = { "vim" },
+					},
+				},
+			},
 		})
 
 		vim.lsp.handlers['textDocument/signatureHelp'] = function(err, result, ctx, config)
