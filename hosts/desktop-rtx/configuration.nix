@@ -32,9 +32,35 @@ in
 
   # Networking.
   networking.hostName = "desktop-rtx";
-  networking.networkmanager.enable = true;
-  networking.networkmanager.wifi.backend = "iwd";
-  networking.wireless.iwd.enable = true;
+
+  networking = {
+    networkmanager.enable = false;
+    wireless.enable = false;
+    wireless.iwd = {
+      enable = true;
+      settings = {
+        General = {
+          EnableNetworkConfiguration = true;
+
+          ControlPortOverNL80211 = false;
+        };
+
+        Network = {
+          EnableIPv6 = true;
+          NameResolvingService = "systemd";
+        };
+
+        Settings = {
+          AutoConnect = true;
+        };
+      };
+    };
+  };
+
+  services.resolved.enable = true;
+
+  # Needed by many Wi-Fi adapters
+  hardware.enableRedistributableFirmware = true;
 
   # Set your time zone.
   time.timeZone = "America/Hermosillo";
