@@ -60,7 +60,6 @@ in
     shfmt
     slurp
     sops
-    steam
     tmux
     unzip
     vim
