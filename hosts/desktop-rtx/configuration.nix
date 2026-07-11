@@ -59,6 +59,11 @@ in
 
   services.resolved.enable = true;
 
+  hardware.bluetooth = {
+    enable = true;
+    powerOnBoot = true;
+  };
+
   # Needed by many Wi-Fi adapters
   hardware.enableRedistributableFirmware = true;
 
