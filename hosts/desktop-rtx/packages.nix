@@ -13,6 +13,7 @@ in
     btop
     chromium
     curl
+		davinci-resolve
 		devenv
     dunst
     eza
