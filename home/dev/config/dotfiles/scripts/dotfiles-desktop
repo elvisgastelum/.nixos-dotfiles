@@ -2608,8 +2608,9 @@ show_restart_menu() {
 }
 
 show_update_menu() {
-	case "$(menu "Update" "  System\n󰔫  Channel [todo]\n  Config\n󰸌  Extra Themes [todo]\n  Process\n󰇅  Hardware [todo]\n  Firmware\n  Password\n  Timezone\n  Time")" in
+	case "$(menu "Update" "  System\n󰑖  Clean NixOS (Keep 10)\n󰔫  Channel [todo]\n  Config\n󰸌  Extra Themes [todo]\n  Process\n󰇅  Hardware [todo]\n  Firmware\n  Password\n  Timezone\n  Time")" in
 	*System*) dotfiles open-floating-terminal dotfiles system update ;;
+	*Clean*) dotfiles open-floating-terminal dotfiles clean nixos --keep 10 ;;
 	*Channel*) unavailable "Update channel" ;;
 	*Config*) open_config "$HOME/.config/waybar/config.jsonc" ;;
 	*Themes*) unavailable "Extra theme update" ;;

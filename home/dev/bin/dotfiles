@@ -353,6 +353,52 @@ rebuild_command() {
 	nixos_rebuild_switch "$source_dir"
 }
 
+clean_command() {
+	local keep=5 target
+
+	target="${1:-}"
+	case "$target" in
+	-h|--help)
+		show_help clean
+		return
+		;;
+	"")
+		die 'Usage: dotfiles clean nixos [--keep N]' 2
+		;;
+	nixos)
+		shift
+		;;
+	*)
+		die 'Usage: dotfiles clean nixos [--keep N]' 2
+		;;
+	esac
+
+	while (($#)); do
+		case "$1" in
+		-h|--help)
+			show_help clean
+			return
+			;;
+		--keep)
+			shift || die 'Usage: dotfiles clean nixos [--keep N]' 2
+			[[ $# -gt 0 ]] || die 'Usage: dotfiles clean nixos [--keep N]' 2
+			keep="$1"
+			;;
+		*)
+			die 'Usage: dotfiles clean nixos [--keep N]' 2
+			;;
+		esac
+		shift
+	done
+
+	[[ $keep =~ ^[1-9][0-9]*$ ]] || die 'Usage: dotfiles clean nixos [--keep N]' 2
+
+	printf 'Keeping last %s NixOS generations\n' "$keep"
+	sudo nix-env --profile /nix/var/nix/profiles/system --delete-generations "+$keep"
+	printf 'Running Nix store garbage collection\n'
+	sudo nix-store --gc
+}
+
 completion_command() {
 	case "${1:-}" in
 	managed-apps) managed_apps ;;
@@ -418,6 +464,7 @@ Core commands:
   apps                                   List managed app/config names
   diff [app]                             Preview managed dotfile changes
   apply [app]                            Apply managed dotfile changes
+  clean nixos [--keep N]                 Clean old NixOS system generations
   rebuild                                Switch the NixOS configuration
   menu [section]                         Open the Walker dotfiles menu
   restart <service>                      Restart a desktop service
@@ -456,6 +503,7 @@ Examples:
   dotfiles apps
   dotfiles diff walker
   dotfiles apply walker
+  dotfiles clean nixos --keep 10
   dotfiles restart waybar
   dotfiles reset ratune
   dotfiles open-browser --private
@@ -495,6 +543,22 @@ Usage:
   dotfiles rebuild
 
 Switch the NixOS configuration using the managed flake.
+EOF
+		;;
+	clean)
+		cat <<'EOF'
+Usage:
+  dotfiles clean [-h|--help]
+  dotfiles clean nixos [--keep N]
+  dotfiles clean nixos [-h|--help]
+
+Delete old NixOS system generations and then run Nix garbage collection.
+
+Options:
+  --keep N   Keep the last N generations (default: 5)
+
+Example:
+  dotfiles clean nixos --keep 10
 EOF
 		;;
 	status)
@@ -585,7 +649,7 @@ _dotfiles_complete() {
 	cur="${COMP_WORDS[COMP_CWORD]}"
 	command_name="${COMP_WORDS[1]:-}"
 
-	top_commands="help apps diff apply rebuild menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete"
+	top_commands="help apps diff apply clean rebuild menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete"
 	menu_sections="apps keybindings learn trigger style setup tui tuis web webapp webapps install remove update about system power defaults"
 	set_defaults="browser terminal editor"
 	screensaver_modes="force run launch"
@@ -612,6 +676,13 @@ _dotfiles_complete() {
 	diff | apply)
 		managed_apps="$(dotfiles complete managed-apps 2>/dev/null || true)"
 		COMPREPLY=($(compgen -W "$managed_apps" -- "$cur"))
+		;;
+	clean)
+		if ((COMP_CWORD == 2)); then
+			COMPREPLY=($(compgen -W "nixos -h --help" -- "$cur"))
+		elif [[ ${COMP_WORDS[2]:-} == nixos && COMP_CWORD == 3 ]]; then
+			COMPREPLY=($(compgen -W "--keep -h --help" -- "$cur"))
+		fi
 		;;
 	menu)
 		COMPREPLY=($(compgen -W "$menu_sections" -- "$cur"))
@@ -688,7 +759,7 @@ _dotfiles() {
 	local -a capture_commands toggle_commands status_commands control_commands system_commands
 	local -a window_commands workspace_commands brightness_commands audio_commands voxtype_commands shell_options
 
-	top_commands=(help apps diff apply rebuild menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete)
+	top_commands=(help apps diff apply clean rebuild menu restart reset screensaver open-app open-or-focus open-tui open-or-focus-tui open-web-app open-or-focus-web-app open-or-focus-browser create-web-app create-tui-app open-browser edit set capture toggle status control system window workspace brightness audio voxtype osd walker input open-floating-terminal keybindings internal-terminal-cwd shell-auto-complete)
 	menu_sections=(apps keybindings learn trigger style setup tui tuis web webapp webapps install remove update about system power defaults)
 	managed_apps=(${(f)"$(dotfiles complete managed-apps 2>/dev/null)"})
 	restart_services=(${(f)"$(dotfiles complete restart-services 2>/dev/null)"})
@@ -715,6 +786,13 @@ _dotfiles() {
 	case "$words[2]" in
 		help) _values 'dotfiles command' $top_commands ;;
 		diff | apply) _values 'managed app' $managed_apps ;;
+		clean)
+			if ((CURRENT == 3)); then
+				_values 'clean target' nixos -h --help
+			elif ((CURRENT == 4)) && [[ $words[3] == nixos ]]; then
+				_values 'clean option' --keep -h --help
+			fi
+			;;
 		menu) _values 'menu section' $menu_sections ;;
 		restart) _values 'restart service' $restart_services ;;
 		reset) _values 'reset target' $reset_targets ;;
@@ -949,6 +1027,7 @@ main() {
 	diff) managed_chezmoi diff "$@" ;;
 	apply) managed_chezmoi apply "$@" ;;
 	rebuild) rebuild_command "$@" ;;
+	clean) clean_command "$@" ;;
 	menu) run_script dotfiles-menu "$@" ;;
 	restart) run_script dotfiles-restart-service "$@" ;;
 	reset) reset_command "$@" ;;

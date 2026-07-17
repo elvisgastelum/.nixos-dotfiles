@@ -11,8 +11,9 @@ dotfiles \- unified desktop and dotfiles helper
 .B dotfiles
 is the single command entry point on PATH for this dotfiles desktop setup. It
 applies managed dotfiles, launches the Walker menu, opens apps, manages
-generated TUI and web app desktop entries, restarts services, changes runtime
-defaults, and dispatches status/control helpers used by Hyprland and Waybar.
+generated TUI and web app desktop entries, cleans old NixOS system generations,
+restarts services, changes runtime defaults, and dispatches status/control
+helpers used by Hyprland and Waybar.
 .SH CORE COMMANDS
 .TP
 .B dotfiles help [command]
@@ -26,6 +27,14 @@ Preview all managed dotfile changes, or only the named app/config.
 .TP
 .B dotfiles apply [app]
 Apply all managed dotfile changes, or only the named app/config.
+.TP
+.B dotfiles clean nixos [--keep N]
+Delete old NixOS system generations and then run Nix garbage collection. The
+default is
+.B --keep 5
+; for example,
+.B --keep 10
+keeps the last 10 generations.
 .TP
 .B dotfiles rebuild
 Switch the NixOS configuration using the managed flake.
@@ -184,6 +193,7 @@ dotfiles menu defaults
 dotfiles apps
 dotfiles diff walker
 dotfiles apply walker
+dotfiles clean nixos --keep 10
 dotfiles rebuild
 dotfiles status walker
 dotfiles restart waybar
