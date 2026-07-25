@@ -54,6 +54,40 @@ in
 
   xdg.enable = true;
 
+  xdg.mimeApps =
+    let
+      imageViewer = "org.gnome.Loupe.desktop";
+    in
+    {
+      enable = true;
+
+      defaultApplications = {
+        "image/avif" = imageViewer;
+        "image/bmp" = imageViewer;
+        "image/gif" = imageViewer;
+        "image/jpeg" = imageViewer;
+        "image/png" = imageViewer;
+        "image/svg+xml" = imageViewer;
+        "image/svg+xml-compressed" = imageViewer;
+        "image/tiff" = imageViewer;
+        "image/webp" = imageViewer;
+        "image/x-tga" = imageViewer;
+        "image/vnd-ms.dds" = imageViewer;
+        "image/x-dds" = imageViewer;
+        "image/vnd.microsoft.icon" = imageViewer;
+        "image/vnd.radiance" = imageViewer;
+        "image/x-exr" = imageViewer;
+        "image/x-portable-bitmap" = imageViewer;
+        "image/x-portable-graymap" = imageViewer;
+        "image/x-portable-pixmap" = imageViewer;
+        "image/x-portable-anymap" = imageViewer;
+        "image/x-qoi" = imageViewer;
+        "image/qoi" = imageViewer;
+        "image/heic" = imageViewer;
+        "image/jxl" = imageViewer;
+      };
+    };
+
   gtk = {
     enable = true;
 
@@ -107,6 +141,7 @@ in
       fd
       fzf
       jq
+      loupe
       nodejs_22
       nixd
       nixfmt

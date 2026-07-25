@@ -19,7 +19,7 @@
     "bluetooth",
     "pulseaudio",
     "network",
-    "disk",
+    "custom/storage",
     "cpu",
     "battery",
   ],
@@ -74,12 +74,14 @@
     "on-click": "dotfiles open-or-focus-tui btop",
     "on-click-right": "alacritty",
   },
-  "disk": {
-    "interval": 60,
-    "paths": ["/"],
-    "format": " {used}/{total}",
+  "custom/storage": {
+    "format": "{}",
+    "exec": "bash ~/.config/waybar/scripts/storage.sh",
     "tooltip": true,
-    "tooltip-format": "{used} used out of {total} on {path}\n{free} free ({percentage_used}%)",
+    "return-type": "json",
+    "interval": 60,
+    "signal": 11,
+    "on-click": "pkill -RTMIN+11 waybar 2>/dev/null || true",
     "states": {
       "warning": 80,
       "critical": 90,
