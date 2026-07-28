@@ -62,6 +62,11 @@ in
       enable = true;
 
       defaultApplications = {
+        "text/html" = "google-chrome.desktop";
+        "x-scheme-handler/http" = "google-chrome.desktop";
+        "x-scheme-handler/https" = "google-chrome.desktop";
+        "x-scheme-handler/chrome" = "google-chrome.desktop";
+
         "image/avif" = imageViewer;
         "image/bmp" = imageViewer;
         "image/gif" = imageViewer;
