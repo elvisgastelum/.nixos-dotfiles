@@ -1853,6 +1853,9 @@ voxtype_model() {
 }
 
 restart_walker() {
+	walker --close >/dev/null 2>&1 || true
+	pkill -x elephant 2>/dev/null || true
+	run_background elephant
 	pkill -f 'walker --gapplication-service' 2>/dev/null || true
 	run_background env GSK_RENDERER=cairo walker --gapplication-service
 }
