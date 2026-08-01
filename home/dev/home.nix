@@ -228,6 +228,65 @@ in
     copy_if_missing ${./scaffold/zsh/rc.zsh} "$zsh_config_dir/rc.zsh" 0644
   '';
 
+  home.activation.calibreDarkMode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    calibre_config_dir="$HOME/.config/calibre"
+    calibre_gui_json="$calibre_config_dir/gui.json"
+    calibre_backup_json="$calibre_config_dir/gui.json.invalid-json-backup"
+
+    run mkdir -p "$calibre_config_dir"
+
+    ${pkgs.python3}/bin/python3 - "$calibre_gui_json" "$calibre_backup_json" <<'PY'
+    import json
+    import os
+    import pathlib
+    import shutil
+    import sys
+    import tempfile
+
+    gui_json = pathlib.Path(sys.argv[1])
+    backup_json = pathlib.Path(sys.argv[2])
+
+    def write_json_atomic(path, data):
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f"{path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2, sort_keys=False)
+                handle.write("\n")
+            os.replace(tmp_name, path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+            raise
+
+    def backup_invalid_gui_json(reason):
+        shutil.copy2(gui_json, backup_json)
+        print(reason, file=sys.stderr)
+        sys.exit(0)
+
+    gui_json.parent.mkdir(parents=True, exist_ok=True)
+
+    if gui_json.exists():
+        try:
+            with gui_json.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            backup_invalid_gui_json(f"Calibre dark-mode hook: gui.json is invalid JSON; backed up to {backup_json}")
+
+        if not isinstance(data, dict):
+            backup_invalid_gui_json(f"Calibre dark-mode hook: gui.json root is not an object; backed up to {backup_json}")
+
+        if data.get("color_palette") == "dark":
+            sys.exit(0)
+
+        data["color_palette"] = "dark"
+        write_json_atomic(gui_json, data)
+    else:
+        write_json_atomic(gui_json, {"color_palette": "dark"})
+    PY
+  '';
+
   programs.hunk = {
     enable = true;
     enableGitIntegration = false;
