@@ -78,6 +78,7 @@ in
   xdg-desktop-portal-hyprland
   xdg-terminal-exec
   xdg-utils
+  desktop-file-utils
   xsel
   yq
   zoxide
