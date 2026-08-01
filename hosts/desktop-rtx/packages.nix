@@ -9,6 +9,7 @@ in
   alacritty
   apple-cursor
   bat
+  calibre
   brightnessctl
   btop
   chromium
