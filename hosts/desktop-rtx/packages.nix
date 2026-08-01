@@ -25,6 +25,7 @@ in
   fzf
   git
   gnome-calculator
+  gnome-disk-utility
   gnumake
   gcc
   google-chrome
@@ -58,10 +59,10 @@ in
   ripgrep
   ruby
   satty
-   shfmt
-   slurp
-   sops
-   tmux
+  shfmt
+  slurp
+  sops
+  tmux
   unzip
   vim
   vulkan-tools
