@@ -19,6 +19,8 @@ in
   eza
   fd
   ffmpeg
+  vlc
+  mpv
   fastfetch
   fcitx5
   foot
