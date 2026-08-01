@@ -137,6 +137,11 @@ in
   # UWSM manages the Hyprland systemd session; avoid Home Manager's integration conflict.
   wayland.windowManager.hyprland.systemd.enable = false;
 
+  services.nextcloud-client = {
+    enable = true;
+    startInBackground = true;
+  };
+
   home.packages =
     with pkgs;
     [
@@ -147,6 +152,7 @@ in
       fzf
       jq
       loupe
+      nextcloud-client
       nodejs_22
       nixd
       nixfmt
