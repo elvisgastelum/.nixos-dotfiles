@@ -2,6 +2,8 @@
 let
   inherit (pkgs) lib;
 
+  gyroflow = pkgs.gyroflow.override { ffmpeg = pkgs.ffmpeg_7; };
+
   optionalPackage = name: lib.optional (builtins.hasAttr name pkgs) (builtins.getAttr name pkgs);
 in
 (with pkgs; [
@@ -20,6 +22,7 @@ in
   eza
   fd
   ffmpeg
+  gyroflow
   vlc
   mpv
   fastfetch
