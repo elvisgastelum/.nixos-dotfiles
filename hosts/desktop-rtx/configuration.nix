@@ -148,6 +148,8 @@ in
 
   programs.zsh.enable = true;
 
+  services.gnome.gnome-keyring.enable = true;
+
   programs.hyprland = {
     enable = true;
     withUWSM = true;
@@ -205,6 +207,8 @@ in
       };
     };
   };
+
+  security.pam.services.greetd.enableGnomeKeyring = true;
 
   security.sudo.wheelNeedsPassword = true;
 
