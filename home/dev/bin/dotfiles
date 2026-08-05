@@ -339,7 +339,7 @@ nixos_rebuild_switch() {
 	flake_ref="$source_dir#desktop-rtx"
 
 	printf 'Switching NixOS configuration: %s\n' "$flake_ref"
-	exec sudo nixos-rebuild switch --flake "$flake_ref"
+	sudo nixos-rebuild switch --flake "$flake_ref"
 }
 
 rebuild_command() {
@@ -351,6 +351,10 @@ rebuild_command() {
 
 	source_dir=$(managed_source_dir) || die 'Could not locate the dotfiles source directory.' 2
 	nixos_rebuild_switch "$source_dir"
+	printf 'Restarting Walker so the application list is refreshed...\n'
+	if ! dotfiles restart walker; then
+		printf 'Warning: Walker restart failed; run `dotfiles restart walker` from the desktop session.\n' >&2
+	fi
 }
 
 clean_command() {
