@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage: resolve-transcode [-f|--force] [--dry-run] [--audio-24bit] [-o|--output PATH] INPUT...
+
+transcode media for davinci resolve free linux compatibility
+
+options:
+  -h, --help        show this help
+  -f, --force       overwrite output files
+      --dry-run     print ffmpeg commands without running them
+      --audio-24bit use pcm_s24le for audio
+  -o, --output      explicit output path (single input only)
+EOF
+}
+
+die() {
+  printf 'resolve-transcode: %s\n' "$*" >&2
+  exit 1
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"
+}
+
+quote_cmd() {
+  printf '%q ' "$@"
+  printf '\n'
+}
+
+has_stream() {
+  local input=$1
+  local stream_type=$2
+  local probe_output
+  probe_output=$(ffprobe -v error -select_streams "$stream_type:0" -show_entries stream=index -of csv=p=0 "$input")
+  [[ -n $probe_output ]]
+}
+
+force=0
+dry_run=0
+audio_24bit=0
+explicit_output=''
+inputs=()
+
+while (($#)); do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -f|--force)
+      force=1
+      ;;
+    --dry-run)
+      dry_run=1
+      ;;
+    --audio-24bit)
+      audio_24bit=1
+      ;;
+    -o|--output)
+      [[ $# -ge 2 ]] || die "missing value for $1"
+      explicit_output=$2
+      shift
+      ;;
+    --)
+      shift
+      while (($#)); do
+        inputs+=("$1")
+        shift
+      done
+      break
+      ;;
+    -* )
+      die "unknown option: $1"
+      ;;
+    *)
+      inputs+=("$1")
+      ;;
+  esac
+  shift
+done
+
+need_cmd ffmpeg
+need_cmd ffprobe
+
+(( ${#inputs[@]} > 0 )) || die "expected at least one input file"
+
+if [[ -n $explicit_output && ${#inputs[@]} -ne 1 ]]; then
+  die "-o|--output is only valid with a single input file"
+fi
+
+for input in "${inputs[@]}"; do
+  [[ -f $input ]] || die "input file not found: $input"
+
+  has_video=0
+  has_audio=0
+  if has_stream "$input" v; then
+    has_video=1
+  fi
+  if has_stream "$input" a; then
+    has_audio=1
+  fi
+
+  (( has_video || has_audio )) || die "no audio or video streams found: $input"
+
+  if [[ -n $explicit_output ]]; then
+    output=$explicit_output
+  else
+    base=${input%.*}
+    if (( has_video )); then
+      output="${base}.resolve.mov"
+    else
+      output="${base}.resolve.wav"
+    fi
+  fi
+
+  if [[ -e $output && $force -ne 1 ]]; then
+    die "output exists (use -f to overwrite): $output"
+  fi
+
+  printf 'resolve-transcode: %s -> %s\n' "$input" "$output"
+
+  cmd=(ffmpeg)
+  if (( force )); then
+    cmd+=(-y)
+  else
+    cmd+=(-n)
+  fi
+  cmd+=(-hide_banner -loglevel error -i "$input")
+
+  if (( has_video )); then
+    cmd+=(-map 0:v:0 -c:v dnxhd -profile:v dnxhr_hq -pix_fmt yuv422p)
+  fi
+
+  if (( has_audio )); then
+    if (( audio_24bit )); then
+      audio_codec=pcm_s24le
+    else
+      audio_codec=pcm_s16le
+    fi
+    cmd+=(-map 0:a:0 -c:a "$audio_codec")
+  fi
+
+  cmd+=("$output")
+
+  if (( dry_run )); then
+    quote_cmd "${cmd[@]}"
+  else
+    "${cmd[@]}"
+  fi
+done
