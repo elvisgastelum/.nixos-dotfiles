@@ -49,12 +49,13 @@ in
   kitty
   lazygit
   libnotify
-  libpulseaudio
-  mako
-  mesa-demos
-  nautilus
-  neovim
-  networkmanagerapplet
+   libpulseaudio
+   mako
+   mesa-demos
+   nautilus
+   localsend
+   neovim
+   networkmanagerapplet
   nodejs_22
   obs-studio
   opencode

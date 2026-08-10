@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v localsend_app >/dev/null 2>&1; then
+  notify-send "LocalSend" "localsend_app was not found in PATH" || true
+  exit 1
+fi
+
+if [ "$#" -lt 1 ]; then
+  notify-send "LocalSend" "No files selected" || true
+  exit 1
+fi
+
+exec localsend_app "$@"

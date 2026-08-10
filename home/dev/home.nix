@@ -183,6 +183,13 @@ in
       source = config.lib.file.mkOutOfStoreSymlink "${dotfilesDir}/home/dev/config/${name}";
     }) configFiles;
 
+  xdg.dataFile = {
+    "nautilus/scripts/Send with LocalSend" = {
+      source = ./share-nautilus/scripts/${"Send with LocalSend"};
+      executable = true;
+    };
+  };
+
   home.file =
     lib.genAttrs (map (name: ".local/bin/${name}") binFiles) (target: {
       source = ./bin + "/${baseNameOf target}";
