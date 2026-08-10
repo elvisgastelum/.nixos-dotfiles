@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+die() {
+	printf 'convert-to-mp4: %s\n' "$*" >&2
+	exit 1
+}
+
+usage() {
+	cat <<'EOF'
+Usage: convert-to-mp4 [OPTIONS] INPUT [OUTPUT]
+
+Convert INPUT to an MP4 file using H.264 video and AAC audio.
+
+Options:
+  --quality low|mid|high   Encoding quality preset (default: high)
+  --quality=low|mid|high    Same as above
+  --gpu                    Use NVIDIA NVENC H.264 encoding if available
+  -f, --force              Overwrite OUTPUT if it exists
+  -h, --help               Show this help and exit
+
+If OUTPUT is omitted, it is derived from INPUT by replacing the last
+extension with .mp4, or appending .mp4 when INPUT has no extension.
+
+Examples:
+  convert-to-mp4 video.mkv
+  convert-to-mp4 --quality low --force input.mov output.mp4
+EOF
+}
+
+need_cmd() {
+	command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+quality=high
+gpu=0
+force=0
+positionals=()
+
+while (($#)); do
+	case "$1" in
+	-h | --help)
+		usage
+		exit 0
+		;;
+	-f | --force)
+		force=1
+		shift
+		;;
+	--quality)
+		(($# >= 2)) || die "missing value for --quality"
+		quality=$2
+		shift 2
+		;;
+	--quality=*)
+		quality=${1#*=}
+		shift
+		;;
+	--gpu)
+		gpu=1
+		shift
+		;;
+	--)
+		shift
+		positionals+=("$@")
+		break
+		;;
+	-*)
+		die "unknown option: $1"
+		;;
+	*)
+		positionals+=("$1")
+		shift
+		;;
+	esac
+done
+
+((${#positionals[@]} >= 1 && ${#positionals[@]} <= 2)) || {
+	usage >&2
+	exit 1
+}
+
+input=${positionals[0]}
+
+if [[ ${#positionals[@]} -eq 2 ]]; then
+	output=${positionals[1]}
+else
+	input_name=${input##*/}
+	if [[ $input == */* ]]; then
+		input_dir=${input%/*}
+	else
+		input_dir=''
+	fi
+
+	if [[ $input_name == *.* && $input_name != .* ]]; then
+		output_name="${input_name%.*}.mp4"
+	else
+		output_name="${input_name}.mp4"
+	fi
+
+	if [[ -n $input_dir ]]; then
+		output="$input_dir/$output_name"
+	else
+		output="$output_name"
+	fi
+fi
+
+[[ -f $input ]] || die "input is not a regular file: $input"
+[[ $input != "$output" ]] || die "input and output must be different paths: $input"
+
+if [[ -e $output ]]; then
+	if [[ $input -ef $output ]]; then
+		die "input and output must be different paths: $input"
+	fi
+	if [[ $force -eq 0 ]]; then
+		die "output already exists (use --force to overwrite): $output"
+	fi
+fi
+
+need_cmd ffmpeg
+
+case "$quality" in
+low)
+	crf=28
+	preset=medium
+	audio_bitrate=96k
+	video_args=(-c:v libx264 -preset "$preset" -crf "$crf" -pix_fmt yuv420p)
+	;;
+mid)
+	crf=23
+	preset=medium
+	audio_bitrate=160k
+	video_args=(-c:v libx264 -preset "$preset" -crf "$crf" -pix_fmt yuv420p)
+	;;
+high)
+	crf=18
+	preset=slow
+	audio_bitrate=256k
+	video_args=(-c:v libx264 -preset "$preset" -crf "$crf" -pix_fmt yuv420p)
+	;;
+*)
+	die "invalid quality: $quality (expected low, mid, or high)"
+	;;
+esac
+
+if [[ $gpu -eq 1 ]]; then
+	encoders=$(ffmpeg -hide_banner -encoders 2>/dev/null) || die "failed to query ffmpeg encoders"
+	if [[ ! $encoders =~ (^|[[:space:]])h264_nvenc([[:space:]]|$) ]]; then
+		die "--gpu requested but ffmpeg does not provide h264_nvenc"
+	fi
+	case "$quality" in
+	low)
+		video_args=(-c:v h264_nvenc -preset p4 -tune hq -rc vbr -cq:v 28 -b:v 0 -profile:v high -pix_fmt yuv420p)
+		;;
+	mid)
+		video_args=(-c:v h264_nvenc -preset p5 -tune hq -rc vbr -cq:v 23 -b:v 0 -profile:v high -pix_fmt yuv420p -spatial-aq 1 -temporal-aq 1)
+		;;
+	high)
+		video_args=(-c:v h264_nvenc -preset p6 -tune hq -rc vbr -cq:v 18 -b:v 0 -profile:v high -pix_fmt yuv420p -spatial-aq 1 -temporal-aq 1)
+		;;
+	esac
+fi
+
+ffmpeg_args=(-hide_banner)
+if [[ $force -eq 1 ]]; then
+	ffmpeg_args+=(-y)
+else
+	ffmpeg_args+=(-n)
+fi
+
+ffmpeg_args+=(
+	-i "$input"
+	-map 0:v:0
+	-map 0:a?
+	-map_metadata 0
+	-map_chapters 0
+	-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+	"${video_args[@]}"
+	-c:a aac
+	-b:a "$audio_bitrate"
+	-movflags +faststart
+	"$output"
+)
+
+exec ffmpeg "${ffmpeg_args[@]}"
