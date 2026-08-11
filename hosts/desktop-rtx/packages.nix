@@ -41,10 +41,11 @@ in
   hyprlock
   hyprpaper
   hyprpicker
-  hyprshot
-  hyprsunset
-  jq
-  tuxedo
+   hyprshot
+   hyprsunset
+   htop
+   jq
+   tuxedo
   keyutils
   kitty
   lazygit
